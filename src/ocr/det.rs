@@ -22,14 +22,24 @@ const MAX_CANDIDATES: usize = 1000;
 /// 行内排序时, y 差小于这个值算同一行
 const SORT_Y_TOL: f32 = 10.0;
 
-pub fn detect(sess: &mut Session, img: &Gray) -> Result<Vec<[Pt; 4]>> {
+pub fn detect(sess: &mut Session, img: &Gray, max_side: Option<f32>) -> Result<Vec<[Pt; 4]>> {
     // ---- 预处理: 短边不足 736 就放大, 再取 32 的整数倍 ----
     let (h, w) = (img.h as f32, img.w as f32);
-    let ratio = if h.min(w) < LIMIT_SIDE_LEN {
+    let mut ratio = if h.min(w) < LIMIT_SIDE_LEN {
         LIMIT_SIDE_LEN / h.min(w)
     } else {
         1.0
     };
+    // 只给检测这一步的输入封长边。裁剪和识别用的自始至终是整页原图 ——
+    // 下面框映射回来时按 img.w/pw 换算, 跟这里缩了多少无关。
+    // 检测只负责"文字在哪", 认字是 rec 的事, 所以这里降分辨率不等于降识别质量;
+    // 真正的风险是小字漏检和相邻行粘连, 那个只能靠实测判断。
+    if let Some(m) = max_side {
+        if h.max(w) * ratio > m {
+            // 别为了封顶把短边压到 736 以下, 那是模型的下限
+            ratio = (m / h.max(w)).max(LIMIT_SIDE_LEN / h.min(w)).min(ratio);
+        }
+    }
     let rh = (((h * ratio) / 32.0).round() * 32.0).max(32.0) as usize;
     let rw = (((w * ratio) / 32.0).round() * 32.0).max(32.0) as usize;
     let small = if rh == img.h && rw == img.w {

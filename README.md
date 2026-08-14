@@ -233,6 +233,28 @@ pdf2doc examples/sample_scanned.pdf --to both
 
 图形界面里点「高级」可以直接调；命令行目前只暴露了 `--long-edge` 和几个开关。
 
+### 当库用：内存开关
+
+嵌到内存吃紧的环境（手机是典型）时，`ocr::Engine::load_with` 收一个 `EngineOptions`：
+
+```rust
+use scannedpdf2doc::ocr::{Engine, EngineOptions};
+
+// 峰值 695 -> 567 MB, 识别慢 0.02s, 识别结果逐字不变
+let engine = Engine::load_with(&model_dir, EngineOptions::low_memory())?;
+```
+
+`low_memory()` 只开 `lazy`——让检测、方向分类、识别三个 session 轮流上场、用完就放。
+`run()` 本来就是一段段做完的，谁也不需要跟别人同时在场，所以这么改不影响结果。
+
+峰值内存几乎全花在**检测**那一次推理上（拿纯白页测，跑完检测就返回，已经占到
+570 MB），而它随检测输入的面积走。所以 `det_max_side` 是唯一还能大幅往下压的
+开关——但它**会改结果**，默认不开，要用请先拿自己的样本验一轮。
+
+另外两个容易想当然的错觉，实测都不成立：降线程数几乎不省内存（10→2 只省 1 MB，
+却慢 1.7 倍）；关掉 ORT 的 arena 在 `lazy` 下反而更费（每块单独 malloc，归还
+不及时，RSS 高水位更高）。
+
 ---
 
 ## 换栈都换掉了什么
