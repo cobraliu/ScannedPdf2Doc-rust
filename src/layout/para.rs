@@ -103,9 +103,15 @@ pub fn mark_bullets(mut paras: Vec<Para>, cfg: &Config) -> Vec<Para> {
     for p in &paras {
         *cnt.entry((p.cx0 * 200.0).round() as i64).or_default() += 1;
     }
+    // 打平时取缩进最小的那个, 不能只写 max_by_key(n)
+    //
+    // HashMap 每个进程的哈希种子都不一样, 遍历顺序跟着变。只按 n 取最大, 一旦
+    // 两个缩进出现次数相同, 返回哪个纯看运气 —— 同一个二进制、同一张图, 这一页
+    // 就会一会儿是缩进段一会儿是项目符号列表。Reverse(k) 把平局定死在最小缩进上,
+    // 跟 examples/sample_scanned.docx 那份基准对得上。
     let base = cnt
         .iter()
-        .max_by_key(|(_, &n)| n)
+        .max_by_key(|&(&k, &n)| (n, std::cmp::Reverse(k)))
         .map(|(&k, _)| k as f32 / 200.0)
         .unwrap_or(0.0);
     for p in paras.iter_mut() {

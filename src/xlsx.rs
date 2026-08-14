@@ -372,7 +372,12 @@ impl Book {
 
         // 列宽按该列最长的一格给, 但封顶 42 —— 整格都开了自动换行, 再宽只会让
         // 一列独占屏幕, 反而看不见右边的列
-        for (&c, &w) in &self.st.w {
+        // 排序只为让写出来的 xml 每次都一样 —— 设宽本身跟顺序无关, 但
+        // HashMap 的遍历顺序每个进程都不同, 不排的话同一份输入产出的文件
+        // 字节不一致, 想做回归对比就没法比
+        let mut ws_widths: Vec<_> = self.st.w.iter().map(|(&c, &w)| (c, w)).collect();
+        ws_widths.sort_unstable();
+        for (c, w) in ws_widths {
             ws.set_column_width(c as u16, (w + 2).clamp(8, 42) as f64)?;
         }
         if self.st.n == 0 {

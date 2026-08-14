@@ -283,8 +283,13 @@ pub fn find_grids(img: &Gray, items: &[Box2]) -> Vec<Grid> {
         groups.entry(r).or_default().1.push(*s);
     }
 
+    // 按并查集的根排一下再遍历: 根本身是确定的, 但 HashMap 的遍历顺序不是,
+    // 直接 into_values() 会让多张表的先后顺序每次运行都不一样
+    let mut groups: Vec<_> = groups.into_iter().collect();
+    groups.sort_by_key(|&(root, _)| root);
+
     let mut grids = Vec::new();
-    for (gh, gv) in groups.into_values() {
+    for (_, (gh, gv)) in groups {
         if gh.len() < 2 || gv.len() < 2 {
             continue;
         }
