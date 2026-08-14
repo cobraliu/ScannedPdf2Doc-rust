@@ -1,0 +1,12 @@
+/target
+# 模型和 pdfium 都是二进制依赖, 由 CI 下载或发行包携带, 整个目录都不进仓库
+# (pdfium 包里还带一堆 licenses/ 和 cmake 配置, 留在仓库里只会跟 CI 拉的版本对不上)
+/models/
+/vendor/
+.pdf2doc_cache/
+# 真实合同/扫描件绝不能进仓库
+*.pdf
+*.docx
+*.xlsx
+!examples/*.pdf
+.DS_Store

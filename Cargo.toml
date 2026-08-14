@@ -1,0 +1,61 @@
+[package]
+name = "scannedpdf2doc"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "扫描件 PDF 转可编辑 Word/Excel —— 全本地运行, 不联网"
+# 跟仓库根目录的 LICENSE 和 README 保持一致(之前这里写的 MIT, 是笔误)
+license = "Apache-2.0"
+
+[[bin]]
+name = "pdf2doc"
+path = "src/main.rs"
+
+[[bin]]
+name = "pdf2doc-gui"
+path = "src/bin/gui.rs"
+required-features = ["gui"]
+
+[features]
+default = ["gui"]
+gui = ["dep:eframe", "dep:egui", "dep:rfd"]
+
+[dependencies]
+# PDF 渲染: pdfium 动态库, 运行时绑定
+pdfium-render = "0.9"
+# OCR 推理: ONNX Runtime
+# tls-rustls 只在编译期用来下载 onnxruntime 预编译库, 不进成品;
+# 用 rustls 而非 native-tls, 免得 Linux CI 还要装 OpenSSL 开发头
+# 相对默认特性只去掉 tracing 和 tls-native; std 不能少 —— commit_from_file 挂在它下面
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std", "ndarray", "download-binaries", "tls-rustls", "copy-dylibs", "api-27",
+] }
+ndarray = "0.17"          # 版本要跟 ort 对上, 且需 std(ort 用到 NdFloat)
+# 图像
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# 输出
+zip = { version = "8", default-features = false, features = ["deflate"] }
+rust_xlsxwriter = "0.97"
+# 杂项
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+# 只为给不覆盖时改的文件名打本地时间戳。不是新增依赖: pdfium-render 本来就把
+# chrono(连 clock 特性)编进来了, 直接声明一遍不多带一个 crate
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+rayon = "1"
+# 缓存目录是自己找的, 不引 dirs —— 它的依赖链上挂着 MPL-2.0 的 option-ext
+
+# GUI (可选)
+eframe = { version = "0.36", optional = true, default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
+egui = { version = "0.36", optional = true }
+rfd = { version = "0.17", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = "fat"          # 跨 crate 内联 + 死代码消除, 体积和速度都受益
+codegen-units = 1
+panic = "abort"      # 去掉 unwind 表
+strip = "symbols"    # 砍调试符号 —— Python 版打包体积的一大块就是没砍这个

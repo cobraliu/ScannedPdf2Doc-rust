@@ -1,0 +1,71 @@
+name: ci
+
+# 日常校验。发行包由 build.yml 在打 tag 时构建, 这里只管"代码还是好的":
+# 单平台跑一遍编译 + 测试 + 真实样张转换, 十来分钟出结果。
+# 跟 build.yml 有几步是重复的(装依赖、拉 pdfium 和模型), 没抽成 workflow_call ——
+# 复用之后两边都要绕一层间接, 而这几步本来就只有二十行。
+on:
+  push:
+    branches: [main]
+    # 只改文档不值得跑一遍全量编译
+    paths-ignore: ['**.md', 'LICENSE']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # eframe 在 Linux 上要链接 X11 / Wayland 的开发库
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      - name: 下载 pdfium
+        run: |
+          mkdir -p vendor pdfium_tmp
+          curl -fsSL -o pdfium.tgz \
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz"
+          tar -xzf pdfium.tgz -C pdfium_tmp
+          cp pdfium_tmp/lib/libpdfium.so vendor/
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 与 build.yml 同一个来源: 让 RapidOCR 自己去 ModelScope 拉默认那三个模型
+      - name: 下载 OCR 模型
+        run: |
+          pip install "rapidocr>=3.0" onnxruntime
+          python -c "from rapidocr import RapidOCR; RapidOCR(); print('models ready')"
+          SRC=$(python -c "import rapidocr,os;print(os.path.join(os.path.dirname(rapidocr.__file__),'models'))")
+          mkdir -p models && cp "$SRC"/*.onnx models/
+
+      - name: 编译
+        run: cargo build --release --locked
+
+      # tests/rebind.rs 要 libpdfium 在场才有意义(找不到它会自己跳过), 上面已经放好
+      - name: 测试
+        run: cargo test --release --locked
+
+      # 编译过不代表能用: 模型缺一个、pdfium 版本对不上, 都要跑一遍真流程才看得出来
+      - name: 冒烟测试
+        env:
+          PDF2DOC_MODELS: models
+        run: |
+          ./target/release/pdf2doc examples/sample_scanned.pdf --to both -o smoke
+          [ -s smoke/sample_scanned.docx ] || { echo "docx 是空的"; exit 1; }
+          [ -s smoke/sample_scanned.xlsx ] || { echo "xlsx 是空的"; exit 1; }
+          ls -la smoke/

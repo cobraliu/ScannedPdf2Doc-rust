@@ -1,0 +1,188 @@
+name: build
+
+# Rust 本身能交叉编译, 但 pdfium 是各平台预编译的动态库, 且 macOS 打 dmg 需要
+# hdiutil, 所以仍然三个平台各构建一次。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            pdfium: pdfium-win-x64.tgz
+            lib: bin/pdfium.dll
+            asset: pdf2doc-windows-x64.zip
+          # 只出 Apple 芯片版: ort 没有 x86_64-apple-darwin 的预编译静态库
+          # (build script 直接报 no prebuilt binaries), Intel Mac 要自行编译 onnxruntime
+          - os: macos-latest
+            pdfium: pdfium-mac-arm64.tgz
+            lib: lib/libpdfium.dylib
+            asset: pdf2doc-macos-arm64.dmg
+          - os: ubuntu-latest
+            pdfium: pdfium-linux-x64.tgz
+            lib: lib/libpdfium.so
+            asset: pdf2doc-linux-x64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # eframe 在 Linux 上要链接 X11 / Wayland 的开发库
+      - name: 安装 Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+
+      # pdfium 官方不发 crates 包, 用 bblanchon 的预编译库(BSD, 与本项目授权兼容)
+      - name: 下载 pdfium
+        shell: bash
+        run: |
+          mkdir -p vendor pdfium_tmp
+          curl -fsSL -o pdfium.tgz \
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium }}"
+          tar -xzf pdfium.tgz -C pdfium_tmp
+          cp "pdfium_tmp/${{ matrix.lib }}" vendor/
+          # 授权声明一起留着: BSD/MIT 这些许可都要求二进制分发时随附版权声明。
+          # pdfium 自己的 BSD 在 LICENSE, 它搭进去的三十来个第三方库在 licenses/
+          cp -R pdfium_tmp/licenses vendor/licenses
+          cp pdfium_tmp/LICENSE vendor/licenses/pdfium.txt
+          ls -la vendor/
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 靠 RapidOCR 自己去拉 —— 与 Python 版拿到的是同一批文件, 保证两边识别结果
+      # 一致。实例化那一步才会真正触发下载, 它去的是 ModelScope 上那三个直链
+      # (见 rapidocr/default_models.yaml, README 里抄了地址和校验值)。
+      # 走它而不是直接 curl: 默认配置选哪个模型由它说了算, 不用两边各记一份。
+      - name: 下载 OCR 模型
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          pip install "rapidocr>=3.0" onnxruntime
+          python -c "from rapidocr import RapidOCR; RapidOCR(); print('models ready')"
+          SRC=$(python -c "import rapidocr,os;print(os.path.join(os.path.dirname(rapidocr.__file__),'models'))")
+          mkdir -p models
+          cp "$SRC"/*.onnx models/
+          ls -la models/
+          for f in PP-OCRv6_det_small.onnx PP-OCRv6_rec_small.onnx ch_ppocr_mobile_v2.0_cls_mobile.onnx; do
+            [ -f "models/$f" ] || { echo "缺模型 $f"; exit 1; }
+          done
+
+      - name: 构建
+        shell: bash
+        run: |
+          cargo build --release --locked
+          mkdir -p out
+          cp target/release/pdf2doc out/ 2>/dev/null || true
+          cp target/release/pdf2doc-gui out/ 2>/dev/null || true
+          cp target/release/pdf2doc.exe out/ 2>/dev/null || true
+          cp target/release/pdf2doc-gui.exe out/ 2>/dev/null || true
+          ls -la out/
+
+      # 放在打包之前: 发行包里带的就是这次测过的这份二进制
+      # tests/rebind.rs 要 libpdfium 在场才有意义, 上一步已经放进 vendor/ 了
+      - name: 测试
+        shell: bash
+        run: cargo test --release --locked
+
+      # 用示例件跑一遍真流程: 光看能不能编译, 查不出模型缺失或 pdfium 加载失败
+      - name: 冒烟测试
+        shell: bash
+        env:
+          # pdfium 走默认查找就行 —— vendor/ 是内置候选路径之一, 库名各平台自动匹配
+          PDF2DOC_MODELS: models
+        run: |
+          EXE=out/pdf2doc; [ "${{ runner.os }}" = "Windows" ] && EXE=out/pdf2doc.exe
+          "$EXE" examples/sample_scanned.pdf --to both -o smoke
+          ls -la smoke/
+          [ -s smoke/sample_scanned.docx ] || { echo "docx 是空的"; exit 1; }
+          [ -s smoke/sample_scanned.xlsx ] || { echo "xlsx 是空的"; exit 1; }
+
+      # GitHub Release 的资产名只保留 [A-Za-z0-9._-], 中文会被吃掉, 所以包名用 ASCII,
+      # 包内的程序名仍是中文。
+      - name: 打包
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS)
+              APP="stage/扫描件转Word.app"
+              mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources/models"
+              cp packaging/Info.plist "$APP/Contents/"
+              cp out/pdf2doc out/pdf2doc-gui "$APP/Contents/MacOS/"
+              cp vendor/libpdfium.dylib "$APP/Contents/Frameworks/"
+              cp models/*.onnx "$APP/Contents/Resources/models/"
+              cp LICENSE "$APP/Contents/Resources/"
+              cp -R vendor/licenses "$APP/Contents/Resources/"
+              # 未签名的包在 macOS 15+ 上连"右键打开"都可能被拦, 打个 ad-hoc 签名能免掉
+              codesign --force --deep --sign - "$APP" || echo "ad-hoc 签名失败, 继续"
+              ln -s /Applications stage/Applications
+              hdiutil create -volname "扫描件转Word" -srcfolder stage \
+                             -ov -format UDZO "${{ matrix.asset }}"
+              ;;
+            Linux)
+              D=stage/pdf2doc
+              mkdir -p "$D/models"
+              cp out/pdf2doc out/pdf2doc-gui "$D/"
+              cp vendor/libpdfium.so "$D/"
+              cp models/*.onnx "$D/models/"
+              cp LICENSE "$D/"; cp -R vendor/licenses "$D/"
+              chmod +x "$D/pdf2doc" "$D/pdf2doc-gui"
+              tar -czf "${{ matrix.asset }}" -C stage pdf2doc
+              ;;
+            Windows)
+              D=stage/pdf2doc
+              mkdir -p "$D/models"
+              cp out/pdf2doc.exe out/pdf2doc-gui.exe "$D/"
+              cp vendor/pdfium.dll "$D/"
+              cp models/*.onnx "$D/models/"
+              cp LICENSE "$D/"; cp -R vendor/licenses "$D/"
+              7z a -tzip "${{ matrix.asset }}" ./stage/pdf2doc
+              ;;
+          esac
+          ls -la "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          body: |
+            扫描版 PDF -> 可编辑 Word / Excel。全本地运行，不联网、不上传。
+
+            | 平台 | 下载 | 怎么用 |
+            |---|---|---|
+            | Windows | `pdf2doc-windows-x64.zip` | 解压后双击 `pdf2doc-gui.exe`；`pdf2doc.exe` 是命令行版 |
+            | macOS | `pdf2doc-macos-arm64.dmg` | 打开 dmg，把「扫描件转Word」拖进 Applications（仅 Apple 芯片） |
+            | Linux | `pdf2doc-linux-x64.tar.gz` | 解压后 `./pdf2doc-gui`（或 `./pdf2doc 文件.pdf`） |
+
+            > 下载约 50 MB，解压后约 85 MB —— 其中 32 MB 是 OCR 模型。
+            > 程序本体和依赖库一共才 30 MB 左右，剩下的都是模型。
