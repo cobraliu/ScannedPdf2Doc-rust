@@ -60,7 +60,12 @@ pub fn recognize(
         let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(oe)?;
         let (t_len, n_cls) = (shape[1] as usize, shape[2] as usize);
         for (k, &i) in chunk.iter().enumerate() {
-            out[i] = ctc_decode(&data[k * t_len * n_cls..(k + 1) * t_len * n_cls], t_len, n_cls, charset);
+            out[i] = ctc_decode(
+                &data[k * t_len * n_cls..(k + 1) * t_len * n_cls],
+                t_len,
+                n_cls,
+                charset,
+            );
         }
     }
     Ok(out)

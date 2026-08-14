@@ -77,7 +77,12 @@ impl Engine {
             cs
         };
 
-        Ok(Self { det, cls, rec, charset })
+        Ok(Self {
+            det,
+            cls,
+            rec,
+            charset,
+        })
     }
 
     /// 识别一页, 返回按"先上后下、再左右"排好的文字块
@@ -140,7 +145,11 @@ fn fit_bounds(src: &Gray) -> (Gray, f32, f32) {
     }
     if (ratio - 1.0).abs() < 1e-6 {
         return (
-            Gray { w: src.w, h: src.h, px: src.px.clone() },
+            Gray {
+                w: src.w,
+                h: src.h,
+                px: src.px.clone(),
+            },
             1.0,
             1.0,
         );

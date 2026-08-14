@@ -23,8 +23,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+
+      # 纯文本检查, 一个依赖都不用装, 放最前面: 格式不对几秒钟就知道
+      - name: 格式检查
+        run: cargo fmt --check
 
       # eframe 在 Linux 上要链接 X11 / Wayland 的开发库
       - name: 安装系统依赖
@@ -52,6 +58,11 @@ jobs:
           python -c "from rapidocr import RapidOCR; RapidOCR(); print('models ready')"
           SRC=$(python -c "import rapidocr,os;print(os.path.join(os.path.dirname(rapidocr.__file__),'models'))")
           mkdir -p models && cp "$SRC"/*.onnx models/
+
+      # 排在编译前面, 但得等系统依赖装完 —— egui 那几个 crate 的 build script 要
+      # pkg-config 找得到 wayland/x11 才过得去
+      - name: clippy
+        run: cargo clippy --release --all-targets --locked -- -D warnings
 
       - name: 编译
         run: cargo build --release --locked

@@ -69,7 +69,12 @@ impl Grid {
 ///
 /// 厚度按"面积 ÷ 长度"算, 不能用外接框 —— 扫描件总带零点几度歪斜, 一条
 /// 1500 px 的横线外接框就有七八像素高, 按外接框判会把整张表的框线全扔掉。
-fn rules(bw: &crate::imgutil::Bitmap, horiz: bool, min_len: usize, max_thick: f32) -> Vec<(f32, f32, f32)> {
+fn rules(
+    bw: &crate::imgutil::Bitmap,
+    horiz: bool,
+    min_len: usize,
+    max_thick: f32,
+) -> Vec<(f32, f32, f32)> {
     let opened = bw.open_line(horiz, min_len);
     let mut out = Vec::new();
     for b in connected_components(&opened) {
@@ -78,9 +83,17 @@ fn rules(bw: &crate::imgutil::Bitmap, horiz: bool, min_len: usize, max_thick: f3
             continue;
         }
         if horiz {
-            out.push((b.x as f32, (b.x + b.w) as f32, b.y as f32 + b.h as f32 / 2.0));
+            out.push((
+                b.x as f32,
+                (b.x + b.w) as f32,
+                b.y as f32 + b.h as f32 / 2.0,
+            ));
         } else {
-            out.push((b.y as f32, (b.y + b.h) as f32, b.x as f32 + b.w as f32 / 2.0));
+            out.push((
+                b.y as f32,
+                (b.y + b.h) as f32,
+                b.x as f32 + b.w as f32 / 2.0,
+            ));
         }
     }
     out
@@ -152,13 +165,9 @@ fn cluster(mut vals: Vec<f32>, tol: f32) -> Vec<f32> {
 
 /// v 落在 edges 划出的第几格
 fn band(edges: &[f32], v: f32) -> usize {
-    let mut k = 0;
-    for i in 0..edges.len().saturating_sub(1) {
-        if v >= edges[i] {
-            k = i;
-        }
-    }
-    k
+    // 最后一条边是右/下边界, 不单独成格, 所以只在前 n-1 条里找
+    let inner = edges.len().saturating_sub(1);
+    edges[..inner].iter().rposition(|&e| v >= e).unwrap_or(0)
 }
 
 /// 网格里哪些格是连在一起的: 缺了内部框线就是原件里的合并单元格
@@ -191,18 +200,19 @@ fn grid_cells(xs: &[f32], ys: &[f32], hs: &[HSeg], vs: &[VSeg], tol: f32) -> (Ve
                 w += 1;
             }
             let mut h = 1;
-            while r + h < nr
-                && !used[r + h][c]
-                && (0..w).all(|k| !has_h(r + h - 1, c + k))
-            {
+            while r + h < nr && !used[r + h][c] && (0..w).all(|k| !has_h(r + h - 1, c + k)) {
                 h += 1;
             }
-            for i in r..r + h {
-                for j in c..c + w {
-                    used[i][j] = true;
-                }
+            for row in &mut used[r..r + h] {
+                row[c..c + w].fill(true);
             }
-            cells.push(Cell { r, c, h, w, text: String::new() });
+            cells.push(Cell {
+                r,
+                c,
+                h,
+                w,
+                text: String::new(),
+            });
             if h > 1 || w > 1 {
                 merged += 1;
             }
@@ -242,7 +252,7 @@ pub fn find_grids(img: &Gray, items: &[Box2]) -> Vec<Grid> {
     // 相交的线段属于同一张表: 并查集分组, 一页上多张表各归各的
     let n = hs.len() + vs.len();
     let mut par: Vec<usize> = (0..n).collect();
-    fn find(par: &mut Vec<usize>, mut a: usize) -> usize {
+    fn find(par: &mut [usize], mut a: usize) -> usize {
         while par[a] != a {
             par[a] = par[par[a]];
             a = par[a];

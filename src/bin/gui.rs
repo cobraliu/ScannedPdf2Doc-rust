@@ -24,7 +24,10 @@ enum Status {
     Waiting,
     Running,
     /// 存的是真实路径而不是一段文字: 点队列里那个 ✓ 要能直接把文件打开
-    Done { outs: Vec<PathBuf>, warn: Option<String> },
+    Done {
+        outs: Vec<PathBuf>,
+        warn: Option<String>,
+    },
     Failed(String),
 }
 
@@ -40,8 +43,16 @@ struct Job {
 
 enum Msg {
     Log(String),
-    Progress { job: usize, cur: usize, total: usize, text: String },
-    Job { job: usize, status: Status },
+    Progress {
+        job: usize,
+        cur: usize,
+        total: usize,
+        text: String,
+    },
+    Job {
+        job: usize,
+        status: Status,
+    },
     AllDone,
 }
 
@@ -137,7 +148,11 @@ impl App {
                 dup += 1;
                 continue;
             }
-            self.jobs.push(Job { path: p, fmt: None, status: Status::Waiting });
+            self.jobs.push(Job {
+                path: p,
+                fmt: None,
+                status: Status::Waiting,
+            });
             added += 1;
         }
         let mut note = format!("加入 {added} 个文件");
@@ -243,7 +258,11 @@ impl App {
             return None;
         }
         if let Some(d) = &self.out_dir {
-            return self.jobs.iter().any(|j| matches!(j.status, Status::Done { .. })).then(|| d.clone());
+            return self
+                .jobs
+                .iter()
+                .any(|j| matches!(j.status, Status::Done { .. }))
+                .then(|| d.clone());
         }
         self.jobs
             .iter()
@@ -265,8 +284,18 @@ impl App {
                         self.log.drain(..500);
                     }
                 }
-                Msg::Progress { job, cur, total, text } => {
-                    self.cur = Prog { job, cur, total, text };
+                Msg::Progress {
+                    job,
+                    cur,
+                    total,
+                    text,
+                } => {
+                    self.cur = Prog {
+                        job,
+                        cur,
+                        total,
+                        text,
+                    };
                     if let Some(j) = self.jobs.get_mut(job) {
                         j.status = Status::Running;
                     }
@@ -277,8 +306,16 @@ impl App {
                     }
                 }
                 Msg::AllDone => {
-                    let ok = self.jobs.iter().filter(|j| matches!(j.status, Status::Done { .. })).count();
-                    let bad = self.jobs.iter().filter(|j| matches!(j.status, Status::Failed(_))).count();
+                    let ok = self
+                        .jobs
+                        .iter()
+                        .filter(|j| matches!(j.status, Status::Done { .. }))
+                        .count();
+                    let bad = self
+                        .jobs
+                        .iter()
+                        .filter(|j| matches!(j.status, Status::Failed(_)))
+                        .count();
                     let left = self.jobs.len() - ok - bad;
                     let mut s = format!("完成 {ok} 个");
                     if bad > 0 {
@@ -310,7 +347,11 @@ impl eframe::App for App {
 
         // 拖进来的文件
         let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect()
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect()
         });
         if !dropped.is_empty() {
             self.add(dropped);
@@ -320,7 +361,10 @@ impl eframe::App for App {
 
         // 键盘: 回车开转, Esc 停 —— 队列摆好之后手还在键盘上, 不该被逼着去够鼠标
         let (enter, esc) = ctx.input(|i| {
-            (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape))
+            (
+                i.key_pressed(egui::Key::Enter),
+                i.key_pressed(egui::Key::Escape),
+            )
         });
         if enter && !self.running {
             self.start(&ctx);
@@ -334,13 +378,21 @@ impl eframe::App for App {
             enlarge(ui);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.add_enabled(!self.running, egui::Button::new("添加 PDF…")).clicked() {
-                    if let Some(v) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).pick_files()
+                if ui
+                    .add_enabled(!self.running, egui::Button::new("添加 PDF…"))
+                    .clicked()
+                {
+                    if let Some(v) = rfd::FileDialog::new()
+                        .add_filter("PDF", &["pdf"])
+                        .pick_files()
                     {
                         self.add(v);
                     }
                 }
-                if ui.add_enabled(!self.running, egui::Button::new("清空")).clicked() {
+                if ui
+                    .add_enabled(!self.running, egui::Button::new("清空"))
+                    .clicked()
+                {
                     self.jobs.clear();
                 }
                 ui.separator();
@@ -350,25 +402,40 @@ impl eframe::App for App {
                 ui.selectable_value(&mut self.fmt, Format::Xlsx, "Excel");
                 ui.selectable_value(&mut self.fmt, Format::Both, "两份都要");
                 ui.separator();
-                if ui.button(if self.out_dir.is_some() { "改输出目录" } else { "输出目录…" }).clicked()
+                if ui
+                    .button(if self.out_dir.is_some() {
+                        "改输出目录"
+                    } else {
+                        "输出目录…"
+                    })
+                    .clicked()
                 {
                     if let Some(d) = rfd::FileDialog::new().pick_folder() {
                         self.out_dir = Some(d);
                     }
                 }
-                if self.out_dir.is_some() && ui.button("×").on_hover_text("改回源文件同目录").clicked()
+                if self.out_dir.is_some()
+                    && ui.button("×").on_hover_text("改回源文件同目录").clicked()
                 {
                     self.out_dir = None;
                 }
                 // 转完了想马上看看转成什么样 —— 让人自己顺着路径去翻文件夹是不体面的
                 if let Some(d) = self.result_dir() {
-                    if ui.button("打开结果").on_hover_text(d.display().to_string()).clicked() {
+                    if ui
+                        .button("打开结果")
+                        .on_hover_text(d.display().to_string())
+                        .clicked()
+                    {
                         reveal(&d);
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if self.running {
-                        let label = if self.stopping { "正在停止…" } else { "停止" };
+                        let label = if self.stopping {
+                            "正在停止…"
+                        } else {
+                            "停止"
+                        };
                         if ui
                             .add_enabled(!self.stopping, egui::Button::new(label))
                             .on_hover_text("Esc")
@@ -431,105 +498,119 @@ impl eframe::App for App {
             ui.add_space(4.0);
         });
 
-        egui::Panel::left("queue").default_size(320.0).show(root, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("队列");
-                if !self.jobs.is_empty() {
-                    ui.label(egui::RichText::new(format!("{} 个", self.jobs.len())).weak());
-                }
-            });
-            ui.label(egui::RichText::new("PDF 或整个文件夹, 拖进窗口就行").small().weak());
-            ui.separator();
-            egui::ScrollArea::vertical().id_salt("q").show(ui, |ui| {
-                if self.jobs.is_empty() {
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new("队列是空的").weak());
-                }
-                let mut drop_at = None;
-                let mut open: Option<PathBuf> = None;
-                // 先取出来: 下面的循环把 self.jobs 借走了, 闭包里再读 self 会撞车
-                let (running, default_fmt) = (self.running, self.fmt);
-                for (i, j) in self.jobs.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        let (icon, color) = match &j.status {
-                            Status::Waiting => ("○", egui::Color32::GRAY),
-                            Status::Running => ("▶", egui::Color32::from_rgb(0x2a, 0x7a, 0xe0)),
-                            Status::Done { .. } => ("✓", egui::Color32::from_rgb(0x2a, 0x9a, 0x4a)),
-                            Status::Failed(_) => ("✗", egui::Color32::from_rgb(0xc0, 0x30, 0x30)),
-                        };
-                        // 转好的那个 ✓ 是可以点的: 点开就是转出来的文件。这是转完
-                        // 之后最想干的一件事, 不该让人拿着路径去文件管理器里翻
-                        if let Status::Done { outs, .. } = &j.status {
-                            let hit = ui
-                                .add(egui::Label::new(egui::RichText::new(icon).color(color))
-                                    .sense(egui::Sense::click()))
-                                .on_hover_text("点开转出来的文件");
-                            if hit.clicked() {
-                                open = outs.first().cloned();
-                            }
-                        } else {
-                            ui.colored_label(color, icon);
-                        }
-                        let name = j
-                            .path
-                            .file_name()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        // 右边的控件先摆: 剩多少宽度才轮到文件名, 名字再长也只是
-                        // 被截断, 不会把格式选择框顶出可视区
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if !running && ui.small_button("×").clicked() {
-                                    drop_at = Some(i);
-                                }
-                                ui.add_enabled_ui(!running, |ui| {
-                                    fmt_picker(ui, i, &mut j.fmt, default_fmt);
-                                });
-                                ui.with_layout(
-                                    egui::Layout::left_to_right(egui::Align::Center),
-                                    |ui| {
-                                        let r = ui.add(egui::Label::new(name).truncate());
-                                        match &j.status {
-                                            Status::Done { outs, .. } => {
-                                                let s: Vec<String> =
-                                                    outs.iter().map(|p| p.display().to_string()).collect();
-                                                r.on_hover_text(s.join("\n"));
-                                            }
-                                            Status::Failed(d) => {
-                                                r.on_hover_text(d);
-                                            }
-                                            _ => {
-                                                r.on_hover_text(j.path.display().to_string());
-                                            }
-                                        }
-                                    },
-                                );
-                            },
-                        );
-                    });
-                    // 失败原因直接摆出来, 别藏在悬停提示里 —— 出了错正是最需要
-                    // 一眼看见的时候
-                    if let Status::Failed(m) = &j.status {
-                        ui.horizontal(|ui| {
-                            ui.add_space(18.0);
-                            ui.label(
-                                egui::RichText::new(one_line(m, 60))
-                                    .small()
-                                    .color(egui::Color32::from_rgb(0xc0, 0x30, 0x30)),
-                            )
-                            .on_hover_text(m);
-                        });
+        egui::Panel::left("queue")
+            .default_size(320.0)
+            .show(root, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("队列");
+                    if !self.jobs.is_empty() {
+                        ui.label(egui::RichText::new(format!("{} 个", self.jobs.len())).weak());
                     }
-                }
-                if let Some(i) = drop_at {
-                    self.jobs.remove(i);
-                }
-                if let Some(p) = open {
-                    reveal(&p);
-                }
+                });
+                ui.label(
+                    egui::RichText::new("PDF 或整个文件夹, 拖进窗口就行")
+                        .small()
+                        .weak(),
+                );
+                ui.separator();
+                egui::ScrollArea::vertical().id_salt("q").show(ui, |ui| {
+                    if self.jobs.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("队列是空的").weak());
+                    }
+                    let mut drop_at = None;
+                    let mut open: Option<PathBuf> = None;
+                    // 先取出来: 下面的循环把 self.jobs 借走了, 闭包里再读 self 会撞车
+                    let (running, default_fmt) = (self.running, self.fmt);
+                    for (i, j) in self.jobs.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            let (icon, color) = match &j.status {
+                                Status::Waiting => ("○", egui::Color32::GRAY),
+                                Status::Running => ("▶", egui::Color32::from_rgb(0x2a, 0x7a, 0xe0)),
+                                Status::Done { .. } => {
+                                    ("✓", egui::Color32::from_rgb(0x2a, 0x9a, 0x4a))
+                                }
+                                Status::Failed(_) => {
+                                    ("✗", egui::Color32::from_rgb(0xc0, 0x30, 0x30))
+                                }
+                            };
+                            // 转好的那个 ✓ 是可以点的: 点开就是转出来的文件。这是转完
+                            // 之后最想干的一件事, 不该让人拿着路径去文件管理器里翻
+                            if let Status::Done { outs, .. } = &j.status {
+                                let hit = ui
+                                    .add(
+                                        egui::Label::new(egui::RichText::new(icon).color(color))
+                                            .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_text("点开转出来的文件");
+                                if hit.clicked() {
+                                    open = outs.first().cloned();
+                                }
+                            } else {
+                                ui.colored_label(color, icon);
+                            }
+                            let name = j
+                                .path
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            // 右边的控件先摆: 剩多少宽度才轮到文件名, 名字再长也只是
+                            // 被截断, 不会把格式选择框顶出可视区
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if !running && ui.small_button("×").clicked() {
+                                        drop_at = Some(i);
+                                    }
+                                    ui.add_enabled_ui(!running, |ui| {
+                                        fmt_picker(ui, i, &mut j.fmt, default_fmt);
+                                    });
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            let r = ui.add(egui::Label::new(name).truncate());
+                                            match &j.status {
+                                                Status::Done { outs, .. } => {
+                                                    let s: Vec<String> = outs
+                                                        .iter()
+                                                        .map(|p| p.display().to_string())
+                                                        .collect();
+                                                    r.on_hover_text(s.join("\n"));
+                                                }
+                                                Status::Failed(d) => {
+                                                    r.on_hover_text(d);
+                                                }
+                                                _ => {
+                                                    r.on_hover_text(j.path.display().to_string());
+                                                }
+                                            }
+                                        },
+                                    );
+                                },
+                            );
+                        });
+                        // 失败原因直接摆出来, 别藏在悬停提示里 —— 出了错正是最需要
+                        // 一眼看见的时候
+                        if let Status::Failed(m) = &j.status {
+                            ui.horizontal(|ui| {
+                                ui.add_space(18.0);
+                                ui.label(
+                                    egui::RichText::new(one_line(m, 60))
+                                        .small()
+                                        .color(egui::Color32::from_rgb(0xc0, 0x30, 0x30)),
+                                )
+                                .on_hover_text(m);
+                            });
+                        }
+                    }
+                    if let Some(i) = drop_at {
+                        self.jobs.remove(i);
+                    }
+                    if let Some(p) = open {
+                        reveal(&p);
+                    }
+                });
             });
-        });
 
         egui::CentralPanel::default().show(root, |ui| {
             ui.heading("日志");
@@ -549,9 +630,11 @@ impl eframe::App for App {
                 }
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new("全程在本机跑, 不联网, 文件不出这台电脑; 首次转换要加载模型, 慢一两秒")
-                        .small()
-                        .weak(),
+                    egui::RichText::new(
+                        "全程在本机跑, 不联网, 文件不出这台电脑; 首次转换要加载模型, 慢一两秒",
+                    )
+                    .small()
+                    .weak(),
                 );
                 ui.separator();
             }
@@ -600,7 +683,9 @@ fn collect_pdfs(dir: &std::path::Path, depth: usize, out: &mut Vec<PathBuf>) {
     if depth > 6 || out.len() > 5000 {
         return;
     }
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         let hidden = p
@@ -626,9 +711,15 @@ fn reveal(p: &std::path::Path) {
         // -R 是"在访达里选中它", 比直接打开文件更合适: 同一次转换往往出两份
         std::process::Command::new("open").arg("-R").arg(p).spawn()
     } else if cfg!(target_os = "windows") {
-        std::process::Command::new("explorer").arg(format!("/select,{}", p.display())).spawn()
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", p.display()))
+            .spawn()
     } else {
-        let d = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+        let d = if p.is_dir() {
+            p
+        } else {
+            p.parent().unwrap_or(p)
+        };
         std::process::Command::new("xdg-open").arg(d).spawn()
     };
 }
@@ -660,8 +751,10 @@ fn one_line(s: &str, max: usize) -> String {
 /// Small 那一档不动: 「输出到 …」那行提示还是小字, 不然整条工具栏喧宾夺主。
 fn enlarge(ui: &mut egui::Ui) {
     let st = ui.style_mut();
-    st.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
-    st.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+    st.text_styles
+        .insert(egui::TextStyle::Button, egui::FontId::proportional(16.0));
+    st.text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
     st.spacing.button_padding = egui::vec2(12.0, 7.0);
     st.spacing.item_spacing = egui::vec2(8.0, 6.0);
     st.spacing.interact_size.y = 30.0;
@@ -724,7 +817,14 @@ fn worker(rx: Receiver<Batch>) {
 
 /// 转完一批文件, 逐份回报进度与结果
 fn run_batch(conv: &mut Converter, b: &Batch) {
-    let Batch { tasks, cfg, out, tx, stop, ctx } = b;
+    let Batch {
+        tasks,
+        cfg,
+        out,
+        tx,
+        stop,
+        ctx,
+    } = b;
     let say = |m: String| {
         let _ = tx.send(Msg::Log(m));
         ctx.request_repaint();
@@ -749,13 +849,16 @@ fn run_batch(conv: &mut Converter, b: &Batch) {
             ctx.request_repaint();
         };
         let halt = || stop.load(Ordering::Relaxed);
-        let hooks = Hooks { progress: Some(&prog), log: Some(&log), stop: Some(&halt) };
+        let hooks = Hooks {
+            progress: Some(&prog),
+            log: Some(&log),
+            stop: Some(&halt),
+        };
 
         let status = match conv.convert(p, out.as_deref(), cfg, *fmt, &hooks) {
             Ok(r) => Status::Done {
                 outs: r.outputs,
-                warn: (!r.errors.is_empty())
-                    .then(|| format!("{} 页失败, 已跳过", r.errors.len())),
+                warn: (!r.errors.is_empty()).then(|| format!("{} 页失败, 已跳过", r.errors.len())),
             },
             Err(e) => {
                 let m = format!("{e:#}");
@@ -790,7 +893,9 @@ fn install_cjk_font(ctx: &egui::Context) {
         ("/usr/share/fonts/truetype/arphic/uming.ttc", 0),
     ];
     for (path, index) in CANDS {
-        let Ok(bytes) = std::fs::read(path) else { continue };
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
         let mut fonts = egui::FontDefinitions::default();
         let mut data = egui::FontData::from_owned(bytes);
         data.index = *index;

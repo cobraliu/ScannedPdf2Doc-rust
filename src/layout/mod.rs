@@ -109,7 +109,10 @@ pub fn analyze(items: &[Item], img: &Gray, cfg: &Config) -> Page {
     let rest: Vec<Box2> = if grids.is_empty() {
         body.clone()
     } else {
-        body.iter().filter(|it| !grid::in_grid(it, &grids)).cloned().collect()
+        body.iter()
+            .filter(|it| !grid::in_grid(it, &grids))
+            .cloned()
+            .collect()
     };
     let mut grids = grids;
     for g in grids.iter_mut() {
@@ -123,14 +126,23 @@ pub fn analyze(items: &[Item], img: &Gray, cfg: &Config) -> Page {
 
     let lines = line::find_fracs(line::group_lines(rest, cfg), img);
     let blocks = block::weave(&lines, &grids, cfg);
-    Page { blocks, header, footer, w, h }
+    Page {
+        blocks,
+        header,
+        footer,
+        w,
+        h,
+    }
 }
 
 // ---------- 文本工具 ----------
 
 /// 两个以上汉字就当中文
 pub fn is_zh(s: &str) -> bool {
-    s.chars().filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c)).count() >= 2
+    s.chars()
+        .filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c))
+        .count()
+        >= 2
 }
 
 /// 全角空格换半角, 压掉连续空白

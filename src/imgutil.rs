@@ -38,7 +38,11 @@ pub struct Bitmap {
 
 impl Bitmap {
     pub fn new(w: usize, h: usize) -> Self {
-        Self { w, h, px: vec![0; w * h] }
+        Self {
+            w,
+            h,
+            px: vec![0; w * h],
+        }
     }
 
     #[inline]
@@ -60,12 +64,15 @@ impl Bitmap {
         if k == 0 {
             return self.clone();
         }
-        let (outer, inner) = if horiz { (self.h, self.w) } else { (self.w, self.h) };
+        let (outer, inner) = if horiz {
+            (self.h, self.w)
+        } else {
+            (self.w, self.h)
+        };
         for o in 0..outer {
             let mut run = 0usize;
             for i in 0..=inner {
-                let on = i < inner
-                    && if horiz { self.at(i, o) } else { self.at(o, i) } != 0;
+                let on = i < inner && if horiz { self.at(i, o) } else { self.at(o, i) } != 0;
                 if on {
                     run += 1;
                 } else {
@@ -132,7 +139,13 @@ pub fn connected_components(bm: &Bitmap) -> Vec<Blob> {
                     }
                 }
             }
-            out.push(Blob { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1, area });
+            out.push(Blob {
+                x: x1,
+                y: y1,
+                w: x2 - x1 + 1,
+                h: y2 - y1 + 1,
+                area,
+            });
         }
     }
     out
@@ -176,7 +189,16 @@ pub fn components_with_points(bm: &Bitmap) -> Vec<(Blob, Vec<(i32, i32)>)> {
                 }
             }
             let area = pts.len();
-            out.push((Blob { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1, area }, pts));
+            out.push((
+                Blob {
+                    x: x1,
+                    y: y1,
+                    w: x2 - x1 + 1,
+                    h: y2 - y1 + 1,
+                    area,
+                },
+                pts,
+            ));
         }
     }
     out

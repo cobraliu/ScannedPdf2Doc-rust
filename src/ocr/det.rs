@@ -33,7 +33,11 @@ pub fn detect(sess: &mut Session, img: &Gray) -> Result<Vec<[Pt; 4]>> {
     let rh = (((h * ratio) / 32.0).round() * 32.0).max(32.0) as usize;
     let rw = (((w * ratio) / 32.0).round() * 32.0).max(32.0) as usize;
     let small = if rh == img.h && rw == img.w {
-        Gray { w: img.w, h: img.h, px: img.px.clone() }
+        Gray {
+            w: img.w,
+            h: img.h,
+            px: img.px.clone(),
+        }
     } else {
         super::resize(img, rw, rh)
     };
@@ -67,7 +71,10 @@ pub fn detect(sess: &mut Session, img: &Gray) -> Result<Vec<[Pt; 4]>> {
     let mask = dilate2x2(&mask);
 
     let mut boxes: Vec<([Pt; 4], f32)> = Vec::new();
-    for (_, pts) in components_with_points(&mask).into_iter().take(MAX_CANDIDATES) {
+    for (_, pts) in components_with_points(&mask)
+        .into_iter()
+        .take(MAX_CANDIDATES)
+    {
         let hull = geom::convex_hull(&pts);
         let quad = geom::min_area_rect(&hull);
         if short_side(&quad) < MIN_SIZE {
@@ -147,7 +154,9 @@ fn dist(a: Pt, b: Pt) -> f32 {
 }
 
 fn to_i32(q: &[Pt; 4]) -> Vec<(i32, i32)> {
-    q.iter().map(|&(x, y)| (x.round() as i32, y.round() as i32)).collect()
+    q.iter()
+        .map(|&(x, y)| (x.round() as i32, y.round() as i32))
+        .collect()
 }
 
 /// 框内概率均值 —— 对应 box_score_fast

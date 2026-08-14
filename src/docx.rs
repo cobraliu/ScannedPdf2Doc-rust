@@ -19,7 +19,9 @@ const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relati
 pub const CM: f32 = 567.0;
 
 pub fn esc(t: &str) -> String {
-    t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    t.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// 一段文字的排版属性
@@ -32,7 +34,11 @@ pub struct Fmt {
 
 impl Fmt {
     pub fn new(size: f32) -> Self {
-        Self { size, bold: false, color: None }
+        Self {
+            size,
+            bold: false,
+            color: None,
+        }
     }
     pub fn bold(mut self, b: bool) -> Self {
         self.bold = b;
@@ -59,7 +65,12 @@ fn slot(i: usize) -> String {
 
 impl Docx {
     pub fn new(cfg: &Config, landscape: bool) -> Self {
-        Self { body: String::new(), cfg: cfg.clone(), landscape, tables: Vec::new() }
+        Self {
+            body: String::new(),
+            cfg: cfg.clone(),
+            landscape,
+            tables: Vec::new(),
+        }
     }
 
     /// 当前版面的可用正文宽度(twips); 横版页比竖版宽一半, 表格列宽得跟着变
@@ -133,7 +144,9 @@ impl Docx {
 
     /// 段落
     pub fn para(&mut self, text: &str, f: &Fmt, indent_lv: u8, center: bool, bullet: bool) {
-        let mut ppr = String::from(r#"<w:spacing w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>"#);
+        let mut ppr = String::from(
+            r#"<w:spacing w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>"#,
+        );
         if bullet {
             ppr.push_str(r#"<w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>"#);
         } else if indent_lv > 0 {
@@ -187,7 +200,15 @@ impl Docx {
     ///
     /// `span` 横跨几列, `vmerge` 取 Some(true)=起始格 / Some(false)=被并掉的格。
     /// 文本里的 '\n' 写成多个段落 —— 单元格里换行只能这么写。
-    pub fn cell(&self, text: &str, w: i32, span: usize, vmerge: Option<bool>, f: &Fmt, center: bool) -> String {
+    pub fn cell(
+        &self,
+        text: &str,
+        w: i32,
+        span: usize,
+        vmerge: Option<bool>,
+        f: &Fmt,
+        center: bool,
+    ) -> String {
         let mut tcpr = format!(r#"<w:tcW w:w="{w}" w:type="dxa"/>"#);
         if span > 1 {
             tcpr.push_str(&format!(r#"<w:gridSpan w:val="{span}"/>"#));
@@ -202,7 +223,11 @@ impl Docx {
         }
         let mut inner = String::new();
         for part in text.split('\n') {
-            let jc = if center { r#"<w:jc w:val="center"/>"# } else { "" };
+            let jc = if center {
+                r#"<w:jc w:val="center"/>"#
+            } else {
+                ""
+            };
             inner.push_str(&format!(
                 r#"<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="252" w:lineRule="auto"/>{jc}</w:pPr>{}</w:p>"#,
                 if part.is_empty() { String::new() } else { self.runs(part, f) }
@@ -254,7 +279,10 @@ impl Docx {
 
         // create_new 而不是 create: 调用方已经挑过没被占用的名字了, 这里是第二道
         // 闸 —— 万一挑名和落盘之间被人塞了个文件进来, 宁可报错也不覆盖
-        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
         let mut zip = zip::ZipWriter::new(file);
         let opt: zip::write::FileOptions<'_, ()> =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);

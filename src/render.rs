@@ -87,8 +87,7 @@ pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st
             Block::Grid(g) => {
                 if bi == 0 && grid_continues(&st.grid, &page.blocks, page_no) {
                     let gs = st.grid.as_mut().unwrap();
-                    let (id, widths, ncols, r0) =
-                        (gs.id, gs.widths.clone(), gs.ncols, gs.rows);
+                    let (id, widths, ncols, r0) = (gs.id, gs.widths.clone(), gs.ncols, gs.rows);
                     if let Some(label) = st.marker.take() {
                         let total: i32 = widths.iter().sum();
                         let row = doc.marker_row(&label, ncols, total);
@@ -168,9 +167,9 @@ pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st
             }
             Block::Text(lines) => {
                 st.grid = None; // 中间隔了正文就不是同一张框线表了
-                // 注意不清 st.tbl: 无框线表的续表判据是"列数列位对得上", 中间隔了
-                // 正文照样能接。合同里的条款表天天这样 —— 表格末尾几行说明文字之后
-                // 翻页继续列条款, 清掉状态就把一张表切成两张了。
+                                // 注意不清 st.tbl: 无框线表的续表判据是"列数列位对得上", 中间隔了
+                                // 正文照样能接。合同里的条款表天天这样 —— 表格末尾几行说明文字之后
+                                // 翻页继续列条款, 清掉状态就把一张表切成两张了。
                 write_text(doc, lines, cfg);
             }
         }
@@ -213,17 +212,15 @@ fn write_grid(doc: &mut Docx, id: usize, g: &Grid, widths: &[i32], head: bool) -
     // (r,c) -> 该位置属于哪个 cell, 以及它是不是这个 cell 的左上角
     let mut owner: Vec<Vec<Option<usize>>> = vec![vec![None; nc]; nr];
     for (k, cell) in g.cells.iter().enumerate() {
-        for i in cell.r..cell.r + cell.h {
-            for j in cell.c..cell.c + cell.w {
-                owner[i][j] = Some(k);
-            }
+        for row in &mut owner[cell.r..cell.r + cell.h] {
+            row[cell.c..cell.c + cell.w].fill(Some(k));
         }
     }
-    for r in 0..nr {
+    for (r, orow) in owner.iter().enumerate() {
         let mut row = String::new();
         let mut c = 0usize;
         while c < nc {
-            let Some(k) = owner[r][c] else {
+            let Some(k) = orow[c] else {
                 row.push_str(&doc.cell("", widths[c], 1, None, &Fmt::new(size), false));
                 c += 1;
                 continue;
@@ -236,7 +233,11 @@ fn write_grid(doc: &mut Docx, id: usize, g: &Grid, widths: &[i32], head: bool) -
                 None
             };
             // 竖向合并的后续行不重复写文字
-            let text = if vm == Some(false) { "" } else { cell.text.as_str() };
+            let text = if vm == Some(false) {
+                ""
+            } else {
+                cell.text.as_str()
+            };
             let f = Fmt::new(size).bold(head && r == 0);
             let center = cell.w > 1 || cell.h > 1;
             row.push_str(&doc.cell(text, w, cell.w, vm, &f, center));
@@ -267,7 +268,10 @@ fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config) {
             continue;
         }
         // 短行 + 无收尾标点 + 下一行是长正文 => 无编号小标题
-        let nxt_long = paras.get(i + 1).map(|n| n.rx1 > cfg.full_line).unwrap_or(false);
+        let nxt_long = paras
+            .get(i + 1)
+            .map(|n| n.rx1 > cfg.full_line)
+            .unwrap_or(false);
         if p.rx1 < 0.58
             && !end_punct().is_match(&t)
             && t.chars().count() < 60

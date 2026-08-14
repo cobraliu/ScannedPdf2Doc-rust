@@ -76,7 +76,10 @@ fn main() {
             println!("{m}");
         }
     };
-    let hooks = Hooks { log: Some(&log), ..Default::default() };
+    let hooks = Hooks {
+        log: Some(&log),
+        ..Default::default()
+    };
 
     let mut conv = match a.models {
         Some(d) => Converter::new(&d),
@@ -109,7 +112,10 @@ fn main() {
             println!("  整篇失败: {}", p.display());
         }
         for (p, e) in &page_errs {
-            let f = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let f = p
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
             println!("  {f} 第 {} 页 {}: {}", e.page, e.stage, e.msg);
         }
         std::process::exit(1);

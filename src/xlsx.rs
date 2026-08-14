@@ -195,7 +195,8 @@ impl Book {
         if self.st.row > 2 {
             self.st.row += 1;
         }
-        self.marks.push((self.st.row, ncols, mark(page_no, page_no)));
+        self.marks
+            .push((self.st.row, ncols, mark(page_no, page_no)));
         self.st.mark = Some(self.marks.len() - 1);
         self.st.maxc = self.st.maxc.max(ncols);
         self.st.row += 1;
@@ -258,8 +259,12 @@ impl Book {
                 val,
                 text: text.clone(),
                 fmt: f,
-                merge: merged
-                    .then(|| ((r0 + (cell.r + cell.h) as u32) - 1, (cell.c + cell.w) as u16 - 1)),
+                merge: merged.then(|| {
+                    (
+                        (r0 + (cell.r + cell.h) as u32) - 1,
+                        (cell.c + cell.w) as u16 - 1,
+                    )
+                }),
             });
             if !merged {
                 self.bump_w(cell.c, &text);
@@ -316,7 +321,9 @@ impl Book {
             col: 0,
             val: None,
             text: format!("[第 {page_no} 页解析失败, 已跳过: {err}]"),
-            fmt: Format::new().set_bold().set_font_color(Color::RGB(0xC0_30_30)),
+            fmt: Format::new()
+                .set_bold()
+                .set_font_color(Color::RGB(0xC0_30_30)),
             merge: None,
         });
         self.st.row += 2;
@@ -373,7 +380,10 @@ impl Book {
         }
         // 走 save_to_writer 只为拿 create_new: Workbook::save 内部是 File::create,
         // 会闷声覆盖。调用方已经挑过空名字, 这里是第二道闸
-        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
         wb.save_to_writer(file)?;
         Ok(self.st.n)
     }

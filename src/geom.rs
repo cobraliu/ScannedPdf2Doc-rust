@@ -34,7 +34,9 @@ pub fn convex_hull(pts: &[(i32, i32)]) -> Vec<Pt> {
         hull.push(pt);
     }
     hull.pop();
-    hull.into_iter().map(|(x, y)| (x as f32, y as f32)).collect()
+    hull.into_iter()
+        .map(|(x, y)| (x as f32, y as f32))
+        .collect()
 }
 
 /// 最小外接矩形(旋转卡壳): 枚举凸包每条边作为矩形的一条边, 取面积最小的

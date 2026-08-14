@@ -83,7 +83,9 @@ impl Pages<'_> {
     pub fn render(&self, i: usize) -> Result<Gray> {
         let page = self.doc.pages().get(i as PdfPageIndex)?;
         let long_pt = page.width().value.max(page.height().value).max(1.0);
-        let dpi = (self.long_edge as f32 / long_pt * 72.0).round().clamp(150.0, 300.0);
+        let dpi = (self.long_edge as f32 / long_pt * 72.0)
+            .round()
+            .clamp(150.0, 300.0);
         let cfg = PdfRenderConfig::new().scale_page_by_factor(dpi / 72.0);
         let img = page.render_with_config(&cfg)?.as_image()?.into_luma8();
         Ok(Gray {

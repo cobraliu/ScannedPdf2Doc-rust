@@ -83,9 +83,7 @@ fn has_bar(img: &Gray, up: &Box2, lo: &Box2) -> bool {
         return false;
     }
     let cov: Vec<f32> = (y0..y1)
-        .map(|y| {
-            (x0..x1).filter(|&x| img.at(x, y) < 160).count() as f32 / w as f32
-        })
+        .map(|y| (x0..x1).filter(|&x| img.at(x, y) < 160).count() as f32 / w as f32)
         .collect();
     let mut k = 0usize;
     for (i, c) in cov.iter().enumerate() {

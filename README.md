@@ -274,6 +274,32 @@ ONNX Runtime 是唯一没法省的（**静态链接进可执行文件**，不再
 
 ---
 
+## 开发
+
+推之前本地先跑一遍，CI 卡的就是这三条，一条不过就判红：
+
+```bash
+cargo fmt --check                                      # 格式, 用 rustfmt 默认配置
+cargo clippy --release --all-targets -- -D warnings    # lint, 零容忍
+cargo test --release                                   # 单元 + 回归
+```
+
+`tests/rebind.rs` 盯的是「同一个进程里建第二个 `Renderer`」——pdfium 的绑定是进程级全局的，
+第二次绑定必然报 `AlreadyInitialized`，图形界面转完一批再转一批就会踩到。它要 `vendor/`
+里有 libpdfium 才真跑，找不到会自己跳过而不是判红。
+
+两条 workflow 各管一段：
+
+| 文件 | 触发 | 干什么 |
+|---|---|---|
+| `.github/workflows/ci.yml` | 推 main / 提 PR | Linux 单平台：上面三条 + 拿 `examples/sample_scanned.pdf` 跑一遍真转换 |
+| `.github/workflows/build.yml` | 打 `v*` tag | Windows / macOS / Linux 三个发行包，附 License，建 Release |
+
+模型和 pdfium 不进仓库，两条 workflow 都是现拉的：pdfium 取 bblanchon 的最新预编译包，
+模型让 RapidOCR 自己去 ModelScope 拿默认那三个——和 Python 版用的是同一批文件。
+
+---
+
 ## 依赖与授权
 
 | 组件 | 用途 | 授权 |

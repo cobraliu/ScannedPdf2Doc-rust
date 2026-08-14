@@ -46,7 +46,11 @@ pub fn merge_paras(lines: &[Line], cfg: &Config) -> Vec<Para> {
         .filter(|g| *g > 0.0 && *g < 0.08)
         .collect();
     gaps.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let lead = if gaps.is_empty() { 0.02 } else { gaps[gaps.len() / 2] };
+    let lead = if gaps.is_empty() {
+        0.02
+    } else {
+        gaps[gaps.len() / 2]
+    };
     let gap_max = lead * 1.75;
 
     let mut paras: Vec<Para> = Vec::new();
@@ -69,7 +73,7 @@ pub fn merge_paras(lines: &[Line], cfg: &Config) -> Vec<Para> {
             paras.push(cur);
             continue;
         };
-        let new_block = !(prev.rx1 > cfg.full_line)          // 上一行没排满 -> 它已结束
+        let new_block = prev.rx1 <= cfg.full_line            // 上一行没排满 -> 它已结束
             || num_start().is_match(&cur.text)               // 新编号/新项目符号
             || end_punct().is_match(&prev.text)              // 上一段已收尾
             || is_zh(&cur.text) != is_zh(&prev.text)         // 中英切换 -> 对照的另一半
@@ -166,14 +170,19 @@ pub fn build_rows(lines: &[Line], starts: &[f32]) -> Vec<Vec<String>> {
 /// 一行是不是"全是短标签"的样子
 pub fn header_like(row: &[String]) -> bool {
     let cells: Vec<&String> = row.iter().filter(|c| !c.is_empty()).collect();
-    cells.len() >= 2 && cells.iter().all(|c| c.chars().count() <= 12 && !c.contains('\n'))
+    cells.len() >= 2
+        && cells
+            .iter()
+            .all(|c| c.chars().count() <= 12 && !c.contains('\n'))
 }
 
 /// 首行全是短标签 -> 表头(加粗 + 跨页重复); 值列很长的"标签—值"清单不算
 pub fn is_header_row(rows: &[Vec<String>]) -> bool {
     rows.len() >= 3
         && header_like(&rows[0])
-        && !rows[0].iter().any(|c| !c.is_empty() && end_punct().is_match(c))
+        && !rows[0]
+            .iter()
+            .any(|c| !c.is_empty() && end_punct().is_match(c))
 }
 
 /// 按编号形态判定标题层级; 返回 None 表示正文
@@ -182,7 +191,11 @@ pub fn heading_level(text: &str) -> Option<u8> {
     let pats = PATS.get_or_init(|| {
         vec![
             (Regex::new(r"^[A-Z]\.\s+[A-Z]").unwrap(), 1, 70),
-            (Regex::new(r"^[一二三四五六七八九十]+[、．.]").unwrap(), 2, 60),
+            (
+                Regex::new(r"^[一二三四五六七八九十]+[、．.]").unwrap(),
+                2,
+                60,
+            ),
             (Regex::new(r"^\d{1,2}\.\d{1,2}[\s、．.]").unwrap(), 3, 90),
             (Regex::new(r"^\d{1,2}\s+[A-Z][a-z]").unwrap(), 3, 70),
         ]
@@ -191,7 +204,10 @@ pub fn heading_level(text: &str) -> Option<u8> {
     static N2: OnceLock<Regex> = OnceLock::new();
     static NDOT: OnceLock<Regex> = OnceLock::new();
     let t = text.trim();
-    if SENT.get_or_init(|| Regex::new(r"[。；;]$").unwrap()).is_match(t) {
+    if SENT
+        .get_or_init(|| Regex::new(r"[。；;]$").unwrap())
+        .is_match(t)
+    {
         return None; // 完整句子 -> 正文, 不是标题
     }
     if pats[0].0.is_match(t) && t.chars().count() < pats[0].2 {

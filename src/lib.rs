@@ -39,13 +39,16 @@ pub struct PageError {
     pub msg: String,
 }
 
+/// 进度回调: (阶段, 已完成, 总数, 当前在做什么)
+pub type ProgressFn<'a> = &'a dyn Fn(Stage, usize, usize, &str);
+
 /// 外部挂钩: 进度、日志、中断
 ///
 /// 不要求 Send/Sync —— 挂钩只在 convert 这一次调用里用, 调用方自己决定放哪个
 /// 线程。加上界限反而让 GUI 那边没法直接塞一个捕获了 Sender 的闭包。
 #[derive(Default, Clone, Copy)]
 pub struct Hooks<'a> {
-    pub progress: Option<&'a dyn Fn(Stage, usize, usize, &str)>,
+    pub progress: Option<ProgressFn<'a>>,
     pub log: Option<&'a dyn Fn(&str)>,
     /// 返回 true 时中断
     pub stop: Option<&'a dyn Fn() -> bool>,
@@ -161,7 +164,11 @@ impl Converter {
                 Err(e) => {
                     let msg = format!("{e:#}");
                     hooks.say(&format!("  ! 第 {no} 页失败, 已跳过: {msg}"));
-                    errors.push(PageError { page: no, stage: "版面重建", msg: msg.clone() });
+                    errors.push(PageError {
+                        page: no,
+                        stage: "版面重建",
+                        msg: msg.clone(),
+                    });
                     if let Some(d) = doc.as_mut() {
                         render::page_failed(d, no, &msg, &mut st);
                     }
@@ -178,7 +185,11 @@ impl Converter {
         if let Some(d) = doc {
             let out = vacant(&dir, &name, "docx", hooks);
             d.save(&out)?;
-            hooks.say(&format!("  ✓ {}  ({total} 页, {} KB)", out.display(), kb(&out)));
+            hooks.say(&format!(
+                "  ✓ {}  ({total} 页, {} KB)",
+                out.display(),
+                kb(&out)
+            ));
             outputs.push(out);
         }
         if let Some(b) = book {
@@ -194,10 +205,21 @@ impl Converter {
         if !errors.is_empty() {
             hooks.say(&format!("  ! 本文件有 {} 处失败(已跳过)", errors.len()));
         }
-        hooks.tick(Stage::Done, total, total, &outputs.last().map(|p| p.display().to_string()).unwrap_or_default());
-        Ok(Outcome { outputs, errors, pages: total })
+        hooks.tick(
+            Stage::Done,
+            total,
+            total,
+            &outputs
+                .last()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        );
+        Ok(Outcome {
+            outputs,
+            errors,
+            pages: total,
+        })
     }
-
 }
 
 /// 渲染 + 识别 + 版面重建一页
@@ -212,11 +234,15 @@ fn one_page(
     cfg: &Config,
     hooks: &Hooks,
 ) -> Result<layout::Page> {
-    let img = pages.render(i).with_context(|| format!("渲染第 {} 页", i + 1))?;
+    let img = pages
+        .render(i)
+        .with_context(|| format!("渲染第 {} 页", i + 1))?;
     let items = match cache.load(i) {
         Some(v) => v,
         None => {
-            let v = engine.run(&img).with_context(|| format!("识别第 {} 页", i + 1))?;
+            let v = engine
+                .run(&img)
+                .with_context(|| format!("识别第 {} 页", i + 1))?;
             cache.save(i, &v);
             v
         }
@@ -276,40 +302,6 @@ fn vacant(dir: &Path, stem: &str, ext: &str, hooks: &Hooks) -> PathBuf {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 不覆盖是这个程序对用户的承诺, 用例盯死它
-    #[test]
-    fn vacant_never_returns_an_occupied_path() {
-        let dir = std::env::temp_dir().join(format!("pdf2doc-vacant-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("建临时目录");
-        let h = Hooks::default();
-
-        // 空目录: 就用本名
-        let p1 = vacant(&dir, "a", "docx", &h);
-        assert_eq!(p1, dir.join("a.docx"));
-
-        // 本名被占: 改成带时间戳的, 且原文件分毫不动
-        std::fs::write(&p1, "人工改过的内容").expect("写占位文件");
-        let p2 = vacant(&dir, "a", "docx", &h);
-        assert_ne!(p2, p1);
-        assert!(!p2.exists(), "挑出来的名字必须是空的");
-        let stem = p2.file_stem().unwrap().to_string_lossy().to_string();
-        assert!(stem.starts_with("a-") && stem.len() >= 16, "时间戳格式: {stem}");
-        assert_eq!(p2.extension().unwrap(), "docx");
-
-        // 时间戳那个也被占: 再让一次(同一秒挂序号, 跨秒换时间戳, 都行)
-        std::fs::write(&p2, b"x").expect("写占位文件");
-        let p3 = vacant(&dir, "a", "docx", &h);
-        assert!(!p3.exists() && p3 != p1 && p3 != p2);
-
-        assert_eq!(std::fs::read(&p1).unwrap(), "人工改过的内容".as_bytes());
-        std::fs::remove_dir_all(&dir).ok();
-    }
-}
-
 /// OCR 结果缓存
 ///
 /// 识别占了九成时间, 渲染反而很快 —— 所以只缓存识别结果, 页图每次重渲。
@@ -330,7 +322,11 @@ impl Cache {
         let tag = if tag.is_empty() { "DOC".into() } else { tag };
         let dir = base.join(".pdf2doc_cache");
         let dir = std::fs::create_dir_all(&dir).ok().map(|_| dir);
-        Self { dir, tag, long_edge }
+        Self {
+            dir,
+            tag,
+            long_edge,
+        }
     }
 
     fn path(&self, i: usize) -> Option<PathBuf> {
@@ -357,7 +353,11 @@ impl Cache {
 /// 只为找模型用一次, 不值得为它引 dirs —— 那条依赖链上挂着 MPL-2.0 的 option-ext,
 /// 会给闭源分发添一条要交代的授权。
 fn cache_dir() -> Option<PathBuf> {
-    let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let var = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
     if cfg!(target_os = "windows") {
         var("LOCALAPPDATA")
     } else if cfg!(target_os = "macos") {
@@ -397,4 +397,41 @@ pub fn locate_models() -> Result<PathBuf> {
     Err(anyhow!(
         "找不到 OCR 模型。把三个 .onnx 放进程序同目录的 models/, 或用环境变量 PDF2DOC_MODELS 指定。"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 不覆盖是这个程序对用户的承诺, 用例盯死它
+    #[test]
+    fn vacant_never_returns_an_occupied_path() {
+        let dir = std::env::temp_dir().join(format!("pdf2doc-vacant-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        let h = Hooks::default();
+
+        // 空目录: 就用本名
+        let p1 = vacant(&dir, "a", "docx", &h);
+        assert_eq!(p1, dir.join("a.docx"));
+
+        // 本名被占: 改成带时间戳的, 且原文件分毫不动
+        std::fs::write(&p1, "人工改过的内容").expect("写占位文件");
+        let p2 = vacant(&dir, "a", "docx", &h);
+        assert_ne!(p2, p1);
+        assert!(!p2.exists(), "挑出来的名字必须是空的");
+        let stem = p2.file_stem().unwrap().to_string_lossy().to_string();
+        assert!(
+            stem.starts_with("a-") && stem.len() >= 16,
+            "时间戳格式: {stem}"
+        );
+        assert_eq!(p2.extension().unwrap(), "docx");
+
+        // 时间戳那个也被占: 再让一次(同一秒挂序号, 跨秒换时间戳, 都行)
+        std::fs::write(&p2, b"x").expect("写占位文件");
+        let p3 = vacant(&dir, "a", "docx", &h);
+        assert!(!p3.exists() && p3 != p1 && p3 != p2);
+
+        assert_eq!(std::fs::read(&p1).unwrap(), "人工改过的内容".as_bytes());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

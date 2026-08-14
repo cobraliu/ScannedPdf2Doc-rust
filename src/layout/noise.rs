@@ -34,7 +34,12 @@ fn short_label() -> &'static Regex {
 }
 
 /// 返回 (正文, 页眉, 页脚)
-pub fn drop_noise(items: &[Item], w: f32, h: f32, cfg: &Config) -> (Vec<Box2>, Vec<Box2>, Vec<Box2>) {
+pub fn drop_noise(
+    items: &[Item],
+    w: f32,
+    h: f32,
+    cfg: &Config,
+) -> (Vec<Box2>, Vec<Box2>, Vec<Box2>) {
     let (mut body, mut header, mut footer) = (Vec::new(), Vec::new(), Vec::new());
     for it in items {
         let t = clean(&it.t);
@@ -63,7 +68,8 @@ pub fn drop_noise(items: &[Item], w: f32, h: f32, cfg: &Config) -> (Vec<Box2>, V
         let rec = Box2::from_item(it, w, h, t.clone());
         if cfg.drop_header && ry1 < cfg.header_y && header_pat().is_match(&t) {
             header.push(rec);
-        } else if cfg.drop_footer && (ry0 > cfg.footer_y || (ry0 > 0.85 && footer_pat().is_match(&t)))
+        } else if cfg.drop_footer
+            && (ry0 > cfg.footer_y || (ry0 > 0.85 && footer_pat().is_match(&t)))
         {
             footer.push(rec);
         } else {
