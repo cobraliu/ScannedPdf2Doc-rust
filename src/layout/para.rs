@@ -17,9 +17,19 @@ macro_rules! lazy_re {
     };
 }
 
+// 字母序号大小写都要认, 小写罗马数字也是一档。Word 默认的多级列表就是
+// "1. / a. / i."(再往下 (1) / (a)), 只认 [A-Z] 的话, 从第二级起每一条都会被
+// 当成上一条的续行粘上去 —— 一整页列表能糊成两三段。
+//
+// 点后面写成 `\s|[A-Z][a-z]` 而不是光一个 \s, 是因为识别偶尔不吐那个空格,
+// 同一页里 "a. Unified" 有空格、"b.Because" 就没有。放宽的同时得挡住缩写:
+//   e.g. / i.e.  点后是小写      -> 不匹配
+//   P.R. China / U.S. Gov  点后是大写但紧跟着又一个点 -> [a-z] 卡住, 不匹配
+// 也就是"点后面得跟一个真正的词", 而不是另一截缩写。P.R. China 这行在
+// 3#线.pdf 里就是一条续行, 误判成列表项会把地址拆成两段。
 lazy_re!(
     num_start,
-    r"^(\d{1,2}\.\d{1,2}(\.\d{1,2})?[\s、．.]|\d{1,2}[\.、]\s*|[一二三四五六七八九十]+[、．.]|[（(]\d{1,2}[）)]|[A-Z][\.、]\s|[•·●○\*]\s*|[-–—]\s+)"
+    r"^(\d{1,2}\.\d{1,2}(\.\d{1,2})?[\s、．.]|\d{1,2}[\.、]\s*|[一二三四五六七八九十]+[、．.]|[（(]\d{1,2}[）)]|[（(][A-Za-z][）)]|[ivxIVX]{2,4}[\.、](\s|[A-Z][a-z])|[A-Za-z][\.、](\s|[A-Z][a-z])|[•·●○\*]\s*|[-–—]\s+)"
 );
 lazy_re!(end_punct, r#"[。．.：:；;!?！？）)】\]"”]$"#);
 lazy_re!(bullet, r"^([•·●○\*]\s*|[-–—]\s+)");
@@ -73,11 +83,28 @@ pub fn merge_paras(lines: &[Line], cfg: &Config) -> Vec<Para> {
             paras.push(cur);
             continue;
         };
+        let cur_marker = num_start().is_match(&cur.text);
+        // 悬挂缩进: 列表项的续行对齐到序号后面的正文, 比首行更靠右
+        //
+        //   a. VIP data is used for matching, but cannot provide data to
+        //      cannot obtain (Possible solution: ...)
+        //
+        // 首行 cx0 落在序号上(实测 0.079), 续行落在正文上(0.107), 差的正是
+        // "a. " 那点宽度。这个差常常压过 x_tol(0.025), 于是"缩进层级变了"把每条
+        // 列表项都从中间劈成两段 —— 一页四级嵌套列表能劈出二十来段, 看上去就是
+        // 版式全乱。
+        //
+        // 只在"上一段是列表项、这一行自己没有序号"时放行: 真正的下一级子项必然
+        // 自带序号, 上面 num_start 那条已经先把它断开了。右移超过约三个字符就
+        // 不再当悬挂缩进, 那是另起一栏; 左移一律照旧断开(那是退回外层)。
+        let hang = !cur_marker
+            && num_start().is_match(&prev.text)
+            && (0.0..=0.06).contains(&(cur.cx0 - prev.cx0));
         let new_block = prev.rx1 <= cfg.full_line            // 上一行没排满 -> 它已结束
-            || num_start().is_match(&cur.text)               // 新编号/新项目符号
+            || cur_marker                                    // 新编号/新项目符号
             || end_punct().is_match(&prev.text)              // 上一段已收尾
             || is_zh(&cur.text) != is_zh(&prev.text)         // 中英切换 -> 对照的另一半
-            || (cur.cx0 - prev.cx0).abs() > cfg.x_tol        // 缩进层级变了
+            || (!hang && (cur.cx0 - prev.cx0).abs() > cfg.x_tol) // 缩进层级变了
             || (cur.ry0 - prev.ry0) > gap_max; // 行距明显变大 = 空行
         if new_block {
             paras.push(cur);
@@ -231,4 +258,169 @@ pub fn heading_level(text: &str) -> Option<u8> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::Box2;
+
+    /// 一行只放一个 item, 行宽/缩进直接给死 —— 这些测试只关心断段判据
+    fn line(t: &str, rx0: f32, rx1: f32, ry0: f32) -> Line {
+        let b = Box2 {
+            t: t.into(),
+            x0: rx0,
+            y0: ry0,
+            x1: rx1,
+            y1: ry0 + 0.012,
+            s: 1.0,
+            rx0,
+            rx1,
+            ry0,
+            ry1: ry0 + 0.012,
+        };
+        Line {
+            y0: ry0,
+            y1: ry0 + 0.012,
+            items: vec![b],
+            rx0,
+            rx1,
+            ry0,
+            h: 0.012,
+            cx0: rx0,
+        }
+    }
+
+    fn texts(lines: &[Line]) -> Vec<String> {
+        merge_paras(lines, &Config::default())
+            .into_iter()
+            .map(|p| p.text)
+            .collect()
+    }
+
+    /// 小写字母序号的列表项被当成上一项的续行, 两条粘成一段
+    ///
+    /// 取自 Conclusion-for-QA 那份样张: a. 那行几乎排满(rx1=0.93 > full_line),
+    /// 不以标点收尾, 跟 b. 缩进相同、行距正常 —— 于是六条判据里只剩"新编号"
+    /// 能救, 而 num_start 当时只认大写 [A-Z], 小写一条都不认。
+    #[test]
+    fn lowercase_letter_marker_starts_a_new_para() {
+        let ls = [
+            line("a. Unified DataFeed module, using UDP multicast and other forms for data distribution",
+                 0.14, 0.93, 0.30),
+            line("b. Because the Update Interval of the OrderBook obtained by live trading reaches 50ms, the",
+                 0.14, 0.93, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "b. 是新的一条, 不是 a. 的续行");
+    }
+
+    /// 小写罗马数字同理: i. / ii. / iii.
+    #[test]
+    fn lowercase_roman_marker_starts_a_new_para() {
+        let ls = [
+            line("i. Idempotence class operations can be issued directly at the same time",
+                 0.18, 0.90, 0.30),
+            line("ii. Non-idempotence operations select the optimal endpoint based on certain request",
+                 0.18, 0.90, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "ii. 是新的一条, 不是 i. 的续行");
+    }
+
+    /// 真续行还得照并 —— 别为了断开列表项把正常的折行也拆了
+    #[test]
+    fn plain_wrapped_line_still_merges() {
+        let ls = [
+            line("a. Add a layer of spooler/aggregator processing between Execution Engine and Exchange for",
+                 0.14, 0.93, 0.30),
+            line("order consolidation and internal transactions, reducing transaction requests with",
+                 0.14, 0.88, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 1, "这是折行, 该并回同一段");
+    }
+
+    /// 识别偶尔不吐序号后那个空格, 同一页里 a. 有、b. 没有
+    #[test]
+    fn marker_without_space_after_dot_still_counts() {
+        let ls = [
+            line("a. Unified DataFeed module, using UDP multicast and other forms for data distribution",
+                 0.14, 0.93, 0.30),
+            line("b.Because the Update Interval of the OrderBook obtained by live trading reaches 50ms, the",
+                 0.14, 0.93, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "b.Because 没空格, 也还是新的一条");
+    }
+
+    /// 缩写不能误伤: "e.g." 点后是小写
+    #[test]
+    fn abbreviation_is_not_a_marker() {
+        assert!(!num_start().is_match("e.g. the first case"));
+        assert!(!num_start().is_match("i.e. the second case"));
+    }
+
+    /// 缩写里点后面是大写也不行 —— 得是"点后跟一个真正的词"
+    ///
+    /// "P.R. China" 在 3#线.pdf 里是地址的续行, 判成列表项会把地址拆成两段
+    #[test]
+    fn initialism_is_not_a_marker() {
+        assert!(!num_start().is_match("P.R. China"));
+        assert!(!num_start().is_match("U.S. Government"));
+
+        let ls = [
+            line(
+                "South suburb, Tai'an High-tech. Industrial Development Zone, Shandong Province of",
+                0.20,
+                0.92,
+                0.30,
+            ),
+            line("P.R. China", 0.20, 0.30, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 1, "这是地址的续行, 该并回去");
+    }
+
+    /// 悬挂缩进的续行要并回去 —— 缩进数字取自 Conclusion-for-QA 第 1 页实测
+    ///
+    /// 首行 0.079 在 "a." 上, 续行 0.107 在正文上, 差 0.028 恰好压过 x_tol
+    #[test]
+    fn hanging_indent_continuation_merges() {
+        let ls = [
+            line("a. VIP data is used for matching, but cannot provide data to strategy layer that live",
+                 0.079, 0.926, 0.30),
+            line("cannot obtain (Possible solution: Align VIP and live trading data)",
+                 0.107, 0.405, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 1, "悬挂缩进的续行, 该并回同一条列表项");
+    }
+
+    /// 但下一级子项自带序号, 照旧断开 —— 悬挂缩进不能把嵌套吃掉
+    #[test]
+    fn nested_marked_item_still_splits() {
+        let ls = [
+            line("a. Increase the aggregation of order flow to reduce the number of requests sent to the",
+                 0.079, 0.926, 0.30),
+            line("i. BookTicker", 0.109, 0.249, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "i. 是下一级子项, 不是悬挂缩进");
+    }
+
+    /// 只对列表项放行: 上一段不是列表项时, 右移仍然算换了缩进层级
+    #[test]
+    fn indent_shift_without_marker_still_splits() {
+        let ls = [
+            line("Unified DataFeed module, using UDP multicast and other forms for data distribution so",
+                 0.046, 0.926, 0.30),
+            line("that the strategy layer can subscribe on demand", 0.079, 0.405, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "上一段没有序号, 右移就是换了层级");
+    }
+
+    /// 左移一律断开: 那是退回外层, 不是悬挂缩进
+    #[test]
+    fn outdent_after_marker_still_splits() {
+        let ls = [
+            line("i. Idempotence class operations can be issued directly at the same time to multiple",
+                 0.107, 0.926, 0.30),
+            line("Latency of the whole link needs to be measured end to end", 0.046, 0.405, 0.32),
+        ];
+        assert_eq!(texts(&ls).len(), 2, "缩进退回外层, 不是续行");
+    }
 }
