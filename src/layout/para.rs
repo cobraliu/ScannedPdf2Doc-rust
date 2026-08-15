@@ -142,8 +142,14 @@ pub fn mark_bullets(mut paras: Vec<Para>, cfg: &Config) -> Vec<Para> {
         .map(|(&k, _)| k as f32 / 200.0)
         .unwrap_or(0.0);
     for p in paras.iter_mut() {
-        // 居中大标题左缩进同样很大, 但不是列表项
-        p.bullet = (p.cx0 - base) > cfg.bullet_ind && !num_start().is_match(&p.text) && !p.center;
+        let d = p.cx0 - base;
+        // 缩进得在一个区间里: 至少缩出一格(不然它就是正文), 又不能缩过头 ——
+        // 只有下界的话, 右栏正文和靠右摆的短行(页眉的页码、合同编号、签名)
+        // 全都成了列表项。居中大标题左缩进同样很大, 但也不是列表项
+        p.bullet = d > cfg.bullet_ind
+            && d <= cfg.bullet_ind_max
+            && !num_start().is_match(&p.text)
+            && !p.center;
     }
     paras
 }
@@ -411,6 +417,37 @@ mod tests {
             line("that the strategy layer can subscribe on demand", 0.079, 0.405, 0.32),
         ];
         assert_eq!(texts(&ls).len(), 2, "上一段没有序号, 右移就是换了层级");
+    }
+
+    /// 缩进落在区间里才算列表项
+    ///
+    /// 数字取自 3#线 与 配套 实测: 真列表全在 0.030~0.059, 右栏正文和靠右摆的
+    /// 短行从 0.185 起跳
+    #[test]
+    fn only_a_moderate_indent_makes_a_bullet() {
+        let cfg = Config::default();
+        // 块基准 0.125, 一条真列表项缩 0.036
+        let ps = mark_bullets(
+            merge_paras(
+                &[
+                    line("到青岛港的海运", 0.161, 0.281, 0.30),
+                    line("正文一", 0.125, 0.900, 0.34),
+                    line("正文二", 0.125, 0.900, 0.38),
+                    line("正文三", 0.125, 0.900, 0.42),
+                    // 右上角页眉: 缩了 0.70, 不是列表项
+                    line("详细技术描述页码 11 /32", 0.824, 0.930, 0.46),
+                    // 右栏正文: 缩了 0.40, 也不是
+                    line("DOW Chemical HFDB 0586", 0.523, 0.733, 0.50),
+                ],
+                &cfg,
+            ),
+            &cfg,
+        );
+        let got: Vec<(&str, bool)> = ps.iter().map(|p| (p.text.as_str(), p.bullet)).collect();
+        assert_eq!(got[0], ("到青岛港的海运", true), "缩一格, 是列表项");
+        for (t, b) in &got[4..] {
+            assert!(!b, "{t:?} 缩过头了, 不是列表项");
+        }
     }
 
     /// 左移一律断开: 那是退回外层, 不是悬挂缩进
