@@ -82,9 +82,19 @@ fn grid_continues(prev: &Option<GridState>, blocks: &[Block], page: usize) -> bo
             < 0.02
 }
 
-/// 一页写进文档
-pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st: &mut State) {
+/// 先把每一页的缩进过一遍, 全过完再开始排版
+///
+/// 必须走两趟。零点是"全文最靠左的那一档", 边排边攒的话, 排第 1 页时手上只有
+/// 第 1 页的数据 —— 实测 配套.pdf 前四页算出来的零点是 0.0866, 第 5 页起变成
+/// 0.0618, 同一个横坐标在第 4 页和第 5 页会落到不同的缩进级。那份文件里两段
+/// 的物理页边距本来就不同, 撞对了; 换一份"最窄的页边距在后面才出现"的, 前面
+/// 几页就会整篇凭空多缩一格。
+pub fn scan_indents(st: &mut State, page: &Page, cfg: &Config) {
     merge_indents(&mut st.ind, page, cfg);
+}
+
+/// 一页写进文档 —— 调之前每一页都得先过 [`scan_indents`]
+pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st: &mut State) {
     let base = indent_base(&st.ind);
     for (bi, blk) in page.blocks.iter().enumerate() {
         match blk {
@@ -299,6 +309,11 @@ fn merge_indents(lv: &mut Vec<(f32, usize)>, page: &Page, cfg: &Config) {
 /// 不直接取最小值: 96 页里只要有一行被识别框往左歪了一次, 整篇的零点就跟着
 /// 左移, 后面每一段凭空多缩两三级。要求这一档至少出现过几次, 偶发的歪行就
 /// 落选了。
+///
+/// 一份文件里两段的物理页边距不同时, 只能顾一头: 配套.pdf 前四页的正文在
+/// 0.0867, 第五页起的附件在 0.0618, 零点取 0.0618, 前四页就整篇缩了一格。
+/// 这是全文一个零点的代价 —— 换成一页一个零点, 页内的相对关系是对了, 页与
+/// 页之间又对不上(见 [`scan_indents`]), 那个错得更难看。
 fn indent_base(lv: &[(f32, usize)]) -> f32 {
     lv.iter()
         .find(|(_, n)| *n >= IND_MIN_HITS)
@@ -474,6 +489,24 @@ mod tests {
         let base = indent_base(&ind);
         assert_eq!(indent_of(0.079, base, &cfg), 1, "第 2 页的二级还得是二级");
         assert_eq!(indent_of(0.142, base, &cfg), 3);
+    }
+
+    /// 零点会随着往后翻页左移 —— 所以扫描和排版必须分两趟
+    ///
+    /// 最外层第 2 页才出现: 只扫完第 1 页时零点是 0.079, 全扫完才是 0.046。
+    /// 边扫边排的话, 第 1 页那几行会按 0.079 算, 整页凭空少缩一格
+    #[test]
+    fn the_zero_point_is_not_final_until_every_page_is_scanned() {
+        let cfg = Config::default();
+        let mut ind = Vec::new();
+        merge_indents(&mut ind, &page(&[0.079, 0.079, 0.079, 0.107, 0.142]), &cfg);
+        assert_eq!(indent_of(0.079, indent_base(&ind), &cfg), 0);
+        merge_indents(&mut ind, &page(&[0.046, 0.046, 0.046, 0.079, 0.107]), &cfg);
+        assert_eq!(
+            indent_of(0.079, indent_base(&ind), &cfg),
+            1,
+            "扫完第 2 页, 同一个横坐标该缩一格了"
+        );
     }
 
     /// 偶发的歪行不能把整篇的零点拽走

@@ -3,8 +3,12 @@
 //! 流水线: pdfium 渲染 -> PP-OCRv6 识别 -> 规则版面重建 -> 手写 OOXML / xlsx。
 //! 与 Python 版(pdfRec/convert.py)判据完全一致, 阈值逐条照搬。
 //!
-//! 逐页流式处理: 渲染一页 -> 识别 -> 重建 -> 立刻写进输出对象, 页图随即释放。
-//! Python 版靠把每页 PNG 落盘来控内存, 这里不落盘也不占内存。
+//! 逐页流式识别: 渲染一页 -> 识别 -> 重建 -> 页图随即释放。Python 版靠把每页
+//! PNG 落盘来控内存, 这里不落盘也不占内存。
+//!
+//! 排版是识别全做完之后再走一趟。缩进的零点要看全文最靠左的那一档, 边识别边排
+//! 就只能拿前几页的数据当全文用(详见 render::scan_indents)。留在内存里的只有
+//! 各页的文字框, 峰值仍然由识别那一段决定。
 
 pub mod config;
 pub mod docx;
@@ -20,6 +24,7 @@ use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 
 use config::{Config, Format};
+use layout::Page;
 use ocr::Item;
 
 /// 进度阶段
@@ -145,21 +150,25 @@ impl Converter {
         let mut st = render::State::default();
         let mut errors: Vec<PageError> = Vec::new();
 
+        // 第一趟: 识别 + 攒缩进档位。排版留到第二趟 —— 缩进的零点是全文最靠
+        // 左的那一档, 边识别边排的话前几页手上还没有后面的数据, 同一个横坐标
+        // 在前后两页会落到不同的缩进级(详见 render::scan_indents)。
+        //
+        // 代价只是把各页的文字框留在内存里。框里存的是坐标加文字, 96 页的合同
+        // 也就几 MB, 峰值仍然是 OCR 那一段说了算, 排版这边看不见。
+        let mut laid: Vec<Result<Page, String>> = Vec::with_capacity(total);
         for i in 0..total {
             hooks.check()?;
             let no = i + 1;
             hooks.tick(Stage::Ocr, no, total, &format!("识别 {no}/{total}"));
             match one_page(&pages, engine, &cache, i, cfg, hooks) {
                 Ok(page) => {
-                    if let Some(d) = doc.as_mut() {
-                        if cfg.page_marker {
-                            render::page_marker(d, &page, no, &mut st);
-                        }
-                        render::render_page(d, &page, no, cfg, &mut st);
-                    }
+                    render::scan_indents(&mut st, &page, cfg);
+                    // xlsx 不吃缩进, 顺手就写了
                     if let Some(b) = book.as_mut() {
                         b.add_page(&page, no);
                     }
+                    laid.push(Ok(page));
                 }
                 Err(e) => {
                     let msg = format!("{e:#}");
@@ -169,12 +178,27 @@ impl Converter {
                         stage: "版面重建",
                         msg: msg.clone(),
                     });
-                    if let Some(d) = doc.as_mut() {
-                        render::page_failed(d, no, &msg, &mut st);
-                    }
                     if let Some(b) = book.as_mut() {
                         b.page_failed(no, &msg);
                     }
+                    laid.push(Err(msg));
+                }
+            }
+        }
+
+        // 第二趟: 零点定下来了, 再排版
+        if let Some(d) = doc.as_mut() {
+            for (i, r) in laid.iter().enumerate() {
+                hooks.check()?;
+                let no = i + 1;
+                match r {
+                    Ok(page) => {
+                        if cfg.page_marker {
+                            render::page_marker(d, page, no, &mut st);
+                        }
+                        render::render_page(d, page, no, cfg, &mut st);
+                    }
+                    Err(msg) => render::page_failed(d, no, msg, &mut st),
                 }
             }
         }
