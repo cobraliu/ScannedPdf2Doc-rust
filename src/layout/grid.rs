@@ -99,6 +99,40 @@ fn rules(
     out
 }
 
+/// 把同一条竖线上断开的几截接回去
+///
+/// 必须在 anchored 之前做。扫描件上一条框线的墨色不匀, 中间淡下去几个像素就
+/// 会被二值化切成两截 —— 实测一张手机扫的表格, 右边框在 y=1808 处断了 2 个
+/// 像素, 上半截(y 896..1807)下端离横线 22px、下半截(y 1809..1868)上端离横线
+/// 24px, 于是两截都过不了 anchored, 整条右边框凭空消失, 表格从两列塌成一列。
+///
+/// PDF 渲染出来的线是完美连续的, 所以这个坑只在拍照件上踩得到。
+///
+/// 只接"横向挨得够近(同一条线) 且 纵向缺口比 tol 小"的两截 —— 缺口限制不能
+/// 放松, 否则会把上下两张表的边框接成一条。
+fn stitch_v(mut vs: Vec<VSeg>, tol: f32) -> Vec<VSeg> {
+    // 必须按 y0 排, 不能按 x 排。同一条线的两截 x 会差一点点(墨色不匀,
+    // 连通域的中心就偏了), 按 x 排会把上下顺序打乱, 接的时候反而丢掉上半截
+    vs.sort_by(|a, b| a.y0.partial_cmp(&b.y0).unwrap());
+    let mut out: Vec<VSeg> = Vec::with_capacity(vs.len());
+    for v in vs {
+        // 找一条 x 对得上、尾巴又刚好接得住的; 找不到就自成一条。
+        // 按 y0 排过了, 所以候选的 y0 一定不比 v 大, 只需要看尾巴
+        match out
+            .iter_mut()
+            .find(|p| (p.x - v.x).abs() <= tol && v.y0 - p.y1 <= tol)
+        {
+            Some(p) => {
+                p.y1 = p.y1.max(v.y1);
+                // 接完之后 x 取两截的中点, 免得整条线的位置被更短那截带偏
+                p.x = (p.x + v.x) / 2.0;
+            }
+            None => out.push(v),
+        }
+    }
+    out
+}
+
 /// 只留两端都搭在横线上的竖线
 ///
 /// 汉字的竖笔跟框线一样细一样直, 长度也能碰到阈值; 区别是笔画悬在格子中间,
@@ -241,7 +275,7 @@ pub fn find_grids(img: &Gray, items: &[Box2]) -> Vec<Grid> {
         .map(|(y0, y1, x)| VSeg { y0, y1, x })
         .collect();
     let vs = anchored(
-        off_text_v(vs, items),
+        stitch_v(off_text_v(vs, items), tol),
         &cluster(hs.iter().map(|s| s.y).collect(), tol),
         tol * 2.0,
     );
@@ -378,4 +412,46 @@ pub fn in_grid(it: &Box2, grids: &[Grid]) -> bool {
     grids
         .iter()
         .any(|g| g.x0 <= cx && cx <= g.x1 && g.y0 <= cy && cy <= g.y1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(y0: f32, y1: f32, x: f32) -> VSeg {
+        VSeg { y0, y1, x }
+    }
+
+    /// 手机扫的表格上, 右边框在 y=1808 断了 2 个像素, 两截都过不了 anchored,
+    /// 整条边框消失, 十行两列的表塌成十行一列。数字取自那张真实样张。
+    #[test]
+    fn stitch_rescues_a_broken_border() {
+        let tol = 1756.0 / 300.0; // 5.85
+        let ys = [903.0, 981.0, 1785.0, 1864.0];
+        let broken = vec![v(896.0, 1807.0, 1490.0), v(1809.0, 1868.0, 1489.0)];
+
+        assert!(
+            anchored(broken.clone(), &ys, tol * 2.0).is_empty(),
+            "没接之前两截都该被丢掉, 否则这个测试就测不到东西了"
+        );
+        let whole = stitch_v(broken, tol);
+        assert_eq!(whole.len(), 1, "两截该接成一条");
+        assert_eq!(anchored(whole, &ys, tol * 2.0).len(), 1, "接完该能锚上");
+    }
+
+    /// 缺口大的不能接 —— 上下两张表的边框接成一条会更糟
+    #[test]
+    fn stitch_leaves_far_apart_segments_alone() {
+        let tol = 5.85;
+        let far = vec![v(100.0, 200.0, 500.0), v(400.0, 500.0, 500.0)];
+        assert_eq!(stitch_v(far, tol).len(), 2);
+    }
+
+    /// 横向差太远的是两条不同的竖线, 不能因为纵向接得上就并了
+    #[test]
+    fn stitch_keeps_separate_columns_apart() {
+        let tol = 5.85;
+        let two = vec![v(100.0, 200.0, 500.0), v(201.0, 300.0, 900.0)];
+        assert_eq!(stitch_v(two, tol).len(), 2);
+    }
 }
