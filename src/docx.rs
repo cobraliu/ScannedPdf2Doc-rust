@@ -147,10 +147,20 @@ impl Docx {
         let mut ppr = String::from(
             r#"<w:spacing w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>"#,
         );
+        let step = (0.74 * CM).round() as i32;
         if bullet {
-            ppr.push_str(r#"<w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>"#);
+            // 缩进得直接写在段落上, 不能光靠 w:ilvl
+            //
+            // OOXML 里三者的优先级是 编号定义 < 段落样式 < 段落直接格式。
+            // ListBullet 样式带着 w:ind left=420, 它压过编号里那一级自己的
+            // w:ind —— 只挂 ilvl 的话, 第 3 级的 • 照样贴在第 1 级的位置上。
+            let lv = indent_lv.min(BULLET_LVLS - 1);
+            let ind = step * (lv as i32 + 1);
+            ppr.push_str(&format!(
+                r#"<w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="{lv}"/><w:numId w:val="1"/></w:numPr><w:ind w:left="{ind}" w:hanging="{step}"/>"#
+            ));
         } else if indent_lv > 0 {
-            let ind = (0.74 * indent_lv as f32 * CM).round() as i32;
+            let ind = step * indent_lv as i32;
             ppr.push_str(&format!(r#"<w:ind w:left="{ind}"/>"#));
         }
         if center {
@@ -296,7 +306,7 @@ impl Docx {
         zip.start_file("word/styles.xml", opt)?;
         zip.write_all(styles(&self.cfg).as_bytes())?;
         zip.start_file("word/numbering.xml", opt)?;
-        zip.write_all(NUMBERING.as_bytes())?;
+        zip.write_all(numbering().as_bytes())?;
         zip.start_file("word/document.xml", opt)?;
         zip.write_all(doc.as_bytes())?;
         zip.finish()?;
@@ -350,12 +360,40 @@ fn styles(cfg: &Config) -> String {
     )
 }
 
-const NUMBERING: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+/// 编号定义里放了几级项目符号
+///
+/// 嵌套清单最深见过五级(Conclusion-for-QA 是 1. -> a. -> i. -> 1. -> a.),
+/// 六级留一点富余。Word 自己的默认列表是九级, 少定义几级只是深处不再变符号,
+/// 不会出错。
+const BULLET_LVLS: u8 = 6;
+
+/// 每级的符号与字体: • / o / ▪ 三个一轮, 跟 Word 默认列表一致
+const BULLET_MARKS: [(&str, &str); 3] = [("•", "Symbol"), ("o", "Courier New"), ("▪", "Wingdings")];
+
+/// 六级项目符号 —— 每级各自的符号和缩进
+///
+/// 每一级都得在这儿定义出来: 段落里写了 w:ilvl="3" 而编号定义只到 0, Word 会
+/// 把这一段的编号整个丢掉, 符号直接不显示。
+fn numbering() -> String {
+    let step = (0.74 * CM).round() as i32;
+    let lvls: String = (0..BULLET_LVLS)
+        .map(|i| {
+            let (mark, font) = BULLET_MARKS[i as usize % BULLET_MARKS.len()];
+            let ind = step * (i as i32 + 1);
+            format!(
+                r#"<w:lvl w:ilvl="{i}"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="{mark}"/>
+<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="{ind}" w:hanging="{step}"/></w:pPr>
+<w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:hint="default"/></w:rPr></w:lvl>
+"#
+            )
+        })
+        .collect();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
 <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>
-<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/>
-<w:lvlJc w:val="left"/><w:pPr><w:ind w:left="420" w:hanging="420"/></w:pPr>
-<w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/></w:rPr></w:lvl>
-</w:abstractNum>
+{lvls}</w:abstractNum>
 <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
-</w:numbering>"#;
+</w:numbering>"#
+    )
+}

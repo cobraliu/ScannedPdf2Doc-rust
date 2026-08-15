@@ -20,6 +20,8 @@ pub struct State {
     grid: Option<GridState>,
     /// 还没落地的「原第 N 页」标记
     marker: Option<String>,
+    /// 全文见过的缩进档位, 从左到右
+    ind: Vec<(f32, usize)>,
 }
 
 struct TblState {
@@ -82,6 +84,8 @@ fn grid_continues(prev: &Option<GridState>, blocks: &[Block], page: usize) -> bo
 
 /// 一页写进文档
 pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st: &mut State) {
+    merge_indents(&mut st.ind, page, cfg);
+    let base = indent_base(&st.ind);
     for (bi, blk) in page.blocks.iter().enumerate() {
         match blk {
             Block::Grid(g) => {
@@ -170,7 +174,7 @@ pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st
                                 // 注意不清 st.tbl: 无框线表的续表判据是"列数列位对得上", 中间隔了
                                 // 正文照样能接。合同里的条款表天天这样 —— 表格末尾几行说明文字之后
                                 // 翻页继续列条款, 清掉状态就把一张表切成两张了。
-                write_text(doc, lines, cfg);
+                write_text(doc, lines, cfg, base);
             }
         }
     }
@@ -249,22 +253,94 @@ fn write_grid(doc: &mut Docx, id: usize, g: &Grid, widths: &[i32], head: bool) -
     nr
 }
 
-fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config) {
+/// 一档要出现这么多次才够格当零点
+const IND_MIN_HITS: usize = 3;
+
+/// 把这一页的缩进并进全文的档位表
+///
+/// 表只用来定零点。缩几级是按"离零点多远"折算的, 不按这一档排第几:
+/// 排第几只在整页都是大纲时才等于层级, 而合同报价单里 96 页攒下来是 24 档
+/// (0.12 一直排到 0.88) —— 那是多栏表格的各列横坐标, 第 6 档并不比第 5 档
+/// 深一级。按距离折算, 各列就落在它原本该在的位置上。
+///
+/// 档位得攒在 State 里跨页累积, 不能一页一算: 某一页未必出现最外层。
+/// Conclusion-for-QA 第 2 页整页都是二级往下的条目(唯一一条一级的落在页脚被
+/// 丢了), 单看这页, 二级就成了零点 —— 同一级的条目第 1 页缩一格、第 2 页顶格。
+///
+/// 档的代表值一旦定下就不再动, 免得一串缓慢右移的行首尾相接把两档连成一档。
+///
+/// 归档的容差取半级: 同一档的行受识别框抖动影响差个几千分之一, 得算一档;
+/// 真差一级的差一整个 ind_step, 分得开。
+fn merge_indents(lv: &mut Vec<(f32, usize)>, page: &Page, cfg: &Config) {
+    let tol = cfg.ind_step / 2.0;
+    let mut xs: Vec<f32> = page
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Text(lines) => Some(lines.iter().map(|l| l.cx0)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    for x in xs {
+        match lv.iter_mut().find(|(c, _)| (x - c).abs() <= tol) {
+            Some((_, n)) => *n += 1,
+            None => {
+                let at = lv.partition_point(|(c, _)| *c < x);
+                lv.insert(at, (x, 1));
+            }
+        }
+    }
+}
+
+/// 缩进的零点: 最靠左的那一档, 但得站得住脚
+///
+/// 不直接取最小值: 96 页里只要有一行被识别框往左歪了一次, 整篇的零点就跟着
+/// 左移, 后面每一段凭空多缩两三级。要求这一档至少出现过几次, 偶发的歪行就
+/// 落选了。
+fn indent_base(lv: &[(f32, usize)]) -> f32 {
+    lv.iter()
+        .find(|(_, n)| *n >= IND_MIN_HITS)
+        .or_else(|| lv.first())
+        .map(|(c, _)| *c)
+        .unwrap_or(0.0)
+}
+
+/// 缩几级 —— 按离零点多远折算, 落回 Word 的一级 0.74cm
+fn indent_of(cx0: f32, base: f32, cfg: &Config) -> u8 {
+    (((cx0 - base) / cfg.ind_step).round() as i32).clamp(0, cfg.ind_max as i32) as u8
+}
+
+fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config, base: f32) {
     let paras = mark_bullets(merge_paras(lines, cfg), cfg);
     for i in 0..paras.len() {
         let p = &paras[i];
         let t = p.text.clone();
+        // 原来缩进只有"有/无"两档(cx0 > 0.16), 表达不了多级嵌套:
+        // "1. -> a. -> i. -> 1." 实测落在 0.046 / 0.079 / 0.107 / 0.142,
+        // 四档全在 0.16 以下, 整页大纲于是一路拍平成一级, 看上去就是版式全丢。
+        let ind = indent_of(p.cx0, base, cfg);
+        // 项目符号也吃缩进 —— 嵌套清单里 • 一样分层, 全顶格就看不出谁属于谁
         if let Some(m) = bullet().find(&t) {
             let rest = t[m.end()..].to_string();
-            doc.para(&rest, &Fmt::new(cfg.font_size), 0, false, true);
+            doc.para(&rest, &Fmt::new(cfg.font_size), ind, false, true);
             continue;
         }
         if p.bullet {
-            doc.para(&t, &Fmt::new(cfg.font_size), 0, false, true);
+            doc.para(&t, &Fmt::new(cfg.font_size), ind, false, true);
             continue;
         }
+        // 带编号的小标题同样要缩进: 嵌套大纲里"1./2./3."常常是第三、四级,
+        // 顶格写就跟最外层的"1./2./3."分不出谁管谁了
         if let Some(lv) = heading_level(&t) {
-            doc.para(&t, &Fmt::new(12.0 - lv as f32).bold(true), 0, false, false);
+            doc.para(
+                &t,
+                &Fmt::new(12.0 - lv as f32).bold(true),
+                ind,
+                false,
+                false,
+            );
             continue;
         }
         // 短行 + 无收尾标点 + 下一行是长正文 => 无编号小标题
@@ -285,8 +361,7 @@ fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config) {
             doc.para(&t, &Fmt::new(13.0).bold(true), 0, true, false);
             continue;
         }
-        let lv = if p.cx0 > 0.16 { 1 } else { 0 };
-        doc.para(&t, &Fmt::new(cfg.font_size), lv, false, false);
+        doc.para(&t, &Fmt::new(cfg.font_size), ind, false, false);
     }
 }
 
@@ -320,4 +395,118 @@ pub fn page_failed(doc: &mut Docx, page_no: usize, err: &str, st: &mut State) {
         false,
     );
     *st = State::default(); // 断了就别再往上一页的表里接
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::Box2;
+
+    /// 一行只关心它从哪开始, 别的字段给个能过的值就行
+    fn line(rx0: f32, ry0: f32) -> Line {
+        let (rx1, ry1) = (rx0 + 0.3, ry0 + 0.012);
+        let b = Box2 {
+            t: "x".into(),
+            x0: rx0,
+            y0: ry0,
+            x1: rx1,
+            y1: ry1,
+            s: 1.0,
+            rx0,
+            rx1,
+            ry0,
+            ry1,
+        };
+        Line {
+            y0: ry0,
+            y1: ry1,
+            items: vec![b],
+            rx0,
+            rx1,
+            ry0,
+            h: 0.012,
+            cx0: rx0,
+        }
+    }
+
+    fn page(xs: &[f32]) -> Page {
+        let lines = xs
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| line(x, 0.1 + i as f32 * 0.02))
+            .collect();
+        Page {
+            blocks: vec![Block::Text(lines)],
+            header: vec![],
+            footer: vec![],
+            w: 1810.0,
+            h: 2558.0,
+        }
+    }
+
+    /// 四级大纲一级一格 —— 缩进取自 Conclusion-for-QA 实测
+    #[test]
+    fn nested_outline_gets_one_level_per_step() {
+        let cfg = Config::default();
+        let mut ind = Vec::new();
+        merge_indents(
+            &mut ind,
+            &page(&[0.046, 0.046, 0.046, 0.079, 0.107, 0.142]),
+            &cfg,
+        );
+        let base = indent_base(&ind);
+        assert_eq!(indent_of(0.046, base, &cfg), 0);
+        assert_eq!(indent_of(0.079, base, &cfg), 1);
+        assert_eq!(indent_of(0.107, base, &cfg), 2);
+        assert_eq!(indent_of(0.142, base, &cfg), 3);
+    }
+
+    /// 某一页整页都是二级往下时, 零点不能跟着往右挪
+    ///
+    /// Conclusion-for-QA 第 2 页就是这样(唯一一条一级的落在页脚被丢了)。
+    /// 按页各算各的, 同一级的条目第 1 页缩一格、第 2 页顶格, 翻页就错位。
+    #[test]
+    fn page_without_the_outermost_level_keeps_the_zero_point() {
+        let cfg = Config::default();
+        let mut ind = Vec::new();
+        merge_indents(&mut ind, &page(&[0.046, 0.046, 0.046, 0.079, 0.107]), &cfg);
+        merge_indents(&mut ind, &page(&[0.079, 0.079, 0.079, 0.107, 0.142]), &cfg);
+        let base = indent_base(&ind);
+        assert_eq!(indent_of(0.079, base, &cfg), 1, "第 2 页的二级还得是二级");
+        assert_eq!(indent_of(0.142, base, &cfg), 3);
+    }
+
+    /// 偶发的歪行不能把整篇的零点拽走
+    ///
+    /// 96 页里只要有一行识别框往左歪了一次, 取最小值就会让后面每一段凭空多缩几级
+    #[test]
+    fn a_one_off_stray_line_does_not_move_the_zero_point() {
+        let cfg = Config::default();
+        let mut ind = Vec::new();
+        merge_indents(
+            &mut ind,
+            &page(&[0.010, 0.120, 0.120, 0.120, 0.155, 0.155, 0.155]),
+            &cfg,
+        );
+        let base = indent_base(&ind);
+        assert_eq!(indent_of(0.120, base, &cfg), 0, "正文还是顶格");
+        assert_eq!(indent_of(0.155, base, &cfg), 1);
+    }
+
+    /// 抖动几千分之一还算同一档
+    #[test]
+    fn jitter_within_a_step_stays_one_level() {
+        let cfg = Config::default();
+        let mut ind = Vec::new();
+        merge_indents(&mut ind, &page(&[0.120, 0.123, 0.118, 0.152, 0.155]), &cfg);
+        assert_eq!(ind.len(), 2, "该聚成两档");
+        assert_eq!(ind[0].1, 3);
+    }
+
+    /// 缩到最深也不能把正文挤没 —— ind_max 封顶
+    #[test]
+    fn far_right_text_is_capped() {
+        let cfg = Config::default();
+        assert_eq!(indent_of(0.90, 0.12, &cfg), cfg.ind_max);
+    }
 }

@@ -33,6 +33,13 @@ pub struct Config {
     pub x_tol: f32,
     /// 缩进超出块基准这么多就当列表项
     pub bullet_ind: f32,
+    /// 一级缩进占页宽的比例 —— 段落左边比正文基准多出几个, 就缩几级
+    ///
+    /// 默认 0.035 是 Word 一级 0.74cm 折成 A4 页宽(21cm)的结果, 两头对齐,
+    /// 量出来多少级写回去就是多少级
+    pub ind_step: f32,
+    /// 最多缩几级, 再深下去正文就没地方了
+    pub ind_max: u8,
     /// 无框线表格至少要这么多行才成表
     pub min_tbl_rows: usize,
 
@@ -67,6 +74,8 @@ impl Default for Config {
             full_line: 0.78,
             x_tol: 0.025,
             bullet_ind: 0.030,
+            ind_step: 0.035,
+            ind_max: 5,
             min_tbl_rows: 2,
 
             tables: true,
