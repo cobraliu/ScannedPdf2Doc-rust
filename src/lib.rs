@@ -143,7 +143,13 @@ impl Converter {
         let landscape = pages.mostly_landscape();
         let mut doc = fmt.wants_docx().then(|| {
             let mut d = docx::Docx::new(cfg, landscape);
-            d.para(&name, &docx::Fmt::new(16.0).bold(true), 0, true, false);
+            d.para(
+                &name,
+                &docx::Fmt::new(16.0).bold(true),
+                0,
+                docx::Align::Center,
+                false,
+            );
             d
         });
         let mut book = fmt.wants_xlsx().then(|| xlsx::Book::new(&name));

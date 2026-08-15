@@ -5,7 +5,7 @@
 //! 支离破碎的表。
 
 use crate::config::Config;
-use crate::docx::{Docx, Fmt, CM};
+use crate::docx::{Align, Docx, Fmt, CM};
 use crate::layout::grid::Grid;
 use crate::layout::para::{
     build_rows, bullet, end_punct, heading_level, is_header_row, mark_bullets, merge_paras,
@@ -141,7 +141,7 @@ pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st
                         .cloned()
                         .collect::<Vec<_>>()
                         .join(" ");
-                    doc.para(&t, &Fmt::new(cfg.font_size), 0, false, false);
+                    doc.para(&t, &Fmt::new(cfg.font_size), 0, Align::Left, false);
                     continue;
                 }
                 if bi == 0 && continues(&st.tbl, &page.blocks, page_no) {
@@ -322,9 +322,25 @@ fn indent_base(lv: &[(f32, usize)]) -> f32 {
         .unwrap_or(0.0)
 }
 
-/// 缩几级 —— 按离零点多远折算, 落回 Word 的一级 0.74cm
+/// 量出来该缩几级 —— 按离零点多远折算, 落回 Word 的一级 0.74cm。不封顶
+fn indent_raw(cx0: f32, base: f32, cfg: &Config) -> i32 {
+    ((cx0 - base) / cfg.ind_step).round() as i32
+}
+
+/// 缩几级, 封到 ind_max
 fn indent_of(cx0: f32, base: f32, cfg: &Config) -> u8 {
-    (((cx0 - base) / cfg.ind_step).round() as i32).clamp(0, cfg.ind_max as i32) as u8
+    indent_raw(cx0, base, cfg).clamp(0, cfg.ind_max as i32) as u8
+}
+
+/// 这行是不是靠右摆的
+///
+/// 缩到 ind_max 还放不下, 说明它压根不在正文那条缩进阶梯上 —— 右上角页眉的
+/// 页码、合同编号、落款都是这样。硬按缩进写, 顶到 11.1cm 只剩 4.9cm, 十来个
+/// 字要折成两三行; 右对齐才是它在原件上的样子。
+///
+/// 还要求短: 长段落缩到那么右本来就写不下, 它是右栏正文被并串了, 不是靠右摆。
+fn is_right_aligned(cx0: f32, rx1: f32, base: f32, cfg: &Config) -> bool {
+    indent_raw(cx0, base, cfg) > cfg.ind_max as i32 && (rx1 - cx0) < 0.25
 }
 
 fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config, base: f32) {
@@ -339,11 +355,15 @@ fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config, base: f32) {
         // 项目符号也吃缩进 —— 嵌套清单里 • 一样分层, 全顶格就看不出谁属于谁
         if let Some(m) = bullet().find(&t) {
             let rest = t[m.end()..].to_string();
-            doc.para(&rest, &Fmt::new(cfg.font_size), ind, false, true);
+            doc.para(&rest, &Fmt::new(cfg.font_size), ind, Align::Left, true);
             continue;
         }
         if p.bullet {
-            doc.para(&t, &Fmt::new(cfg.font_size), ind, false, true);
+            doc.para(&t, &Fmt::new(cfg.font_size), ind, Align::Left, true);
+            continue;
+        }
+        if is_right_aligned(p.cx0, p.rx1, base, cfg) {
+            doc.para(&t, &Fmt::new(cfg.font_size), 0, Align::Right, false);
             continue;
         }
         // 带编号的小标题同样要缩进: 嵌套大纲里"1./2./3."常常是第三、四级,
@@ -353,7 +373,7 @@ fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config, base: f32) {
                 &t,
                 &Fmt::new(12.0 - lv as f32).bold(true),
                 ind,
-                false,
+                Align::Left,
                 false,
             );
             continue;
@@ -369,14 +389,20 @@ fn write_text(doc: &mut Docx, lines: &[Line], cfg: &Config, base: f32) {
             && !num_start().is_match(&t)
             && nxt_long
         {
-            doc.para(&t, &Fmt::new(cfg.font_size).bold(true), 0, false, false);
+            doc.para(
+                &t,
+                &Fmt::new(cfg.font_size).bold(true),
+                0,
+                Align::Left,
+                false,
+            );
             continue;
         }
         if p.center {
-            doc.para(&t, &Fmt::new(13.0).bold(true), 0, true, false);
+            doc.para(&t, &Fmt::new(13.0).bold(true), 0, Align::Center, false);
             continue;
         }
-        doc.para(&t, &Fmt::new(cfg.font_size), ind, false, false);
+        doc.para(&t, &Fmt::new(cfg.font_size), ind, Align::Left, false);
     }
 }
 
@@ -395,7 +421,7 @@ pub fn page_marker(doc: &mut Docx, page: &Page, page_no: usize, st: &mut State) 
         &format!("—— 原第 {page_no} 页 ——"),
         &Fmt::new(8.0).color("999999"),
         0,
-        true,
+        Align::Center,
         false,
     );
 }
@@ -406,7 +432,7 @@ pub fn page_failed(doc: &mut Docx, page_no: usize, err: &str, st: &mut State) {
         &format!("[第 {page_no} 页解析失败, 已跳过: {err}]"),
         &Fmt::new(10.5).bold(true).color("C03030"),
         0,
-        false,
+        Align::Left,
         false,
     );
     // 断了就别再往上一页的表里接。但缩进档位表得留着 —— 它攒的是全文的
@@ -548,5 +574,36 @@ mod tests {
     fn far_right_text_is_capped() {
         let cfg = Config::default();
         assert_eq!(indent_of(0.90, 0.12, &cfg), cfg.ind_max);
+    }
+
+    /// 右栏正文按量到的位置缩, 不再跟左栏挤在一起
+    ///
+    /// 3#线 双语对照页的右栏起点在页宽 0.53, 零点 0.121。原先 ind_max=5 把
+    /// 0.175 以外的一律拍平, 96 页里 269 段全落在同一级上
+    #[test]
+    fn the_right_hand_column_keeps_its_own_indent() {
+        let cfg = Config::default();
+        assert_eq!(indent_of(0.533, 0.121, &cfg), 12);
+        assert!(
+            !is_right_aligned(0.533, 0.743, 0.121, &cfg),
+            "右栏正文不是靠右摆的"
+        );
+    }
+
+    /// 缩到顶还放不下的短行是靠右摆的 —— 右上角页眉的页码就是这样
+    #[test]
+    fn a_short_line_past_the_last_level_is_right_aligned() {
+        let cfg = Config::default();
+        // 3#线 右上角: "附件1供货范围页码 5 /7"
+        assert!(is_right_aligned(0.876, 0.929, 0.121, &cfg));
+        // "Page 2 /31"
+        assert!(is_right_aligned(0.835, 0.923, 0.121, &cfg));
+    }
+
+    /// 长段落缩到那么右是右栏正文被并串了, 不能当靠右摆的处理
+    #[test]
+    fn a_long_line_out_there_is_not_right_aligned() {
+        let cfg = Config::default();
+        assert!(!is_right_aligned(0.531, 0.926, 0.121, &cfg));
     }
 }

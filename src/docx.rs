@@ -24,6 +24,26 @@ pub fn esc(t: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// 段落的横向对齐
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    #[default]
+    Left,
+    Center,
+    /// 靠右摆的短行 —— 页眉右上角的页码、合同编号、落款
+    Right,
+}
+
+impl Align {
+    fn ppr(self) -> &'static str {
+        match self {
+            Align::Left => "",
+            Align::Center => r#"<w:jc w:val="center"/>"#,
+            Align::Right => r#"<w:jc w:val="right"/>"#,
+        }
+    }
+}
+
 /// 一段文字的排版属性
 #[derive(Clone)]
 pub struct Fmt {
@@ -143,7 +163,7 @@ impl Docx {
     }
 
     /// 段落
-    pub fn para(&mut self, text: &str, f: &Fmt, indent_lv: u8, center: bool, bullet: bool) {
+    pub fn para(&mut self, text: &str, f: &Fmt, indent_lv: u8, align: Align, bullet: bool) {
         let mut ppr = String::from(
             r#"<w:spacing w:before="0" w:after="60" w:line="276" w:lineRule="auto"/>"#,
         );
@@ -154,8 +174,12 @@ impl Docx {
             // OOXML 里三者的优先级是 编号定义 < 段落样式 < 段落直接格式。
             // ListBullet 样式带着 w:ind left=420, 它压过编号里那一级自己的
             // w:ind —— 只挂 ilvl 的话, 第 3 级的 • 照样贴在第 1 级的位置上。
+            //
+            // ilvl 只挑用哪个符号, 位置由 w:ind 说了算, 所以两者不必同一个数:
+            // numbering.xml 只声明了 BULLET_LVLS 级, ilvl 引用没声明的级 Word
+            // 会把整段的编号丢掉, 但缩进照量到的写就行
             let lv = indent_lv.min(BULLET_LVLS - 1);
-            let ind = step * (lv as i32 + 1);
+            let ind = step * (indent_lv as i32 + 1);
             ppr.push_str(&format!(
                 r#"<w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="{lv}"/><w:numId w:val="1"/></w:numPr><w:ind w:left="{ind}" w:hanging="{step}"/>"#
             ));
@@ -163,9 +187,7 @@ impl Docx {
             let ind = step * indent_lv as i32;
             ppr.push_str(&format!(r#"<w:ind w:left="{ind}"/>"#));
         }
-        if center {
-            ppr.push_str(r#"<w:jc w:val="center"/>"#);
-        }
+        ppr.push_str(align.ppr());
         let runs = self.runs(text, f);
         self.body
             .push_str(&format!("<w:p><w:pPr>{ppr}</w:pPr>{runs}</w:p>"));

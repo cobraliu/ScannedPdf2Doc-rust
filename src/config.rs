@@ -49,7 +49,12 @@ pub struct Config {
     /// 默认 0.035 是 Word 一级 0.74cm 折成 A4 页宽(21cm)的结果, 两头对齐,
     /// 量出来多少级写回去就是多少级
     pub ind_step: f32,
-    /// 最多缩几级, 再深下去正文就没地方了
+    /// 最多缩几级, 再深下去这一行就没地方写字了
+    ///
+    /// 15 级是 11.1cm, A4 正文宽 16cm, 还剩 4.9cm 够写一行。原先写 5 是照着列表那 6 级
+    /// 定的, 可正文没有这个约束 —— 3#线 左右两栏的页面右栏起点在页宽 0.53,
+    /// 一律拍到第 5 级就跟左栏挤在一起: 96 页里 269 段堆在第 5 级上, 第 4 级
+    /// 只有 22 段。缩到顶还放不下的短行按靠右摆处理(见 render::write_text)
     pub ind_max: u8,
     /// 无框线表格至少要这么多行才成表
     pub min_tbl_rows: usize,
@@ -87,7 +92,7 @@ impl Default for Config {
             bullet_ind: 0.030,
             bullet_ind_max: 0.10,
             ind_step: 0.035,
-            ind_max: 5,
+            ind_max: 15,
             min_tbl_rows: 2,
 
             tables: true,
