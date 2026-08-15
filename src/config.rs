@@ -19,7 +19,10 @@ pub struct Config {
     pub drop_footer: bool,
     /// 页眉判定: 相对 y 小于此值
     pub header_y: f32,
-    /// 页脚判定: 相对 y 大于此值
+    /// 页脚判定: 相对 y 大于此值, 且内容看着像页脚
+    ///
+    /// 位置只是必要条件。正文本来就能排到页面底部, 光按位置丢会把正文吃掉 ——
+    /// 实测 3#线 有 135 行正文落在 0.915 以下, 最长的一行 109 个字
     pub footer_y: f32,
 
     // ---- 行 / 块 ----
@@ -67,7 +70,7 @@ impl Default for Config {
             drop_header: true,
             drop_footer: true,
             header_y: 0.125,
-            footer_y: 0.915,
+            footer_y: 0.85,
 
             line_tol: 0.45,
             gutter: 0.035,
