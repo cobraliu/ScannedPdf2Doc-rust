@@ -15,40 +15,73 @@ const IMG_H: usize = 48;
 const IMG_W: usize = 320;
 const BATCH: usize = 6;
 
+/// 复核时横向拉宽的倍数
+///
+/// 模型输入高度写死 48(给 64 直接报维度不符), 想让 CTC 多出几帧只能拉宽度。
+/// 1.5 是实测出来的: Conclusion-for-QA 那处 iii 在 1.5 倍下认对了, 2.0 倍反而
+/// 又认回 ii, 还把 "i. BookTicker" 的空格吞了 —— 拉太狠字形就跑出模型见过的
+/// 比例了。
+const RECHECK_K: f32 = 1.5;
+
+/// 认一遍
 pub fn recognize(
     sess: &mut Session,
     crops: &[Gray],
     charset: &[String],
 ) -> Result<Vec<(String, f32)>> {
-    let mut out = vec![(String::new(), 0.0f32); crops.len()];
-    if crops.is_empty() {
+    let all: Vec<usize> = (0..crops.len()).collect();
+    run(sess, crops, &all, 1.0, charset)
+}
+
+/// 挑几张拉宽了再认一遍, 结果按 pick 的顺序返回
+pub fn recheck(
+    sess: &mut Session,
+    crops: &[Gray],
+    pick: &[usize],
+    charset: &[String],
+) -> Result<Vec<(String, f32)>> {
+    run(sess, crops, pick, RECHECK_K, charset)
+}
+
+/// `k` 是横向拉伸倍数, 1.0 就是保持原始宽高比
+fn run(
+    sess: &mut Session,
+    crops: &[Gray],
+    pick: &[usize],
+    k: f32,
+    charset: &[String],
+) -> Result<Vec<(String, f32)>> {
+    let mut out = vec![(String::new(), 0.0f32); pick.len()];
+    if pick.is_empty() {
         return Ok(out);
     }
     // 按宽高比排序, 相近的分到一批
-    let mut idx: Vec<usize> = (0..crops.len()).collect();
+    let mut idx: Vec<usize> = (0..pick.len()).collect();
     idx.sort_by(|&a, &b| {
-        let ra = crops[a].w as f32 / crops[a].h as f32;
-        let rb = crops[b].w as f32 / crops[b].h as f32;
+        let ra = crops[pick[a]].w as f32 / crops[pick[a]].h as f32;
+        let rb = crops[pick[b]].w as f32 / crops[pick[b]].h as f32;
         ra.partial_cmp(&rb).unwrap()
     });
 
     for chunk in idx.chunks(BATCH) {
+        let ratio_of = |i: usize| k * crops[pick[i]].w as f32 / crops[pick[i]].h as f32;
         let mut max_ratio = IMG_W as f32 / IMG_H as f32;
         for &i in chunk {
-            max_ratio = max_ratio.max(crops[i].w as f32 / crops[i].h as f32);
+            max_ratio = max_ratio.max(ratio_of(i));
         }
         let bw = (IMG_H as f32 * max_ratio) as usize;
         let mut input = Array4::<f32>::zeros((chunk.len(), 3, IMG_H, bw));
-        for (k, &i) in chunk.iter().enumerate() {
-            let g = &crops[i];
-            let ratio = g.w as f32 / g.h as f32;
-            let rw = ((IMG_H as f32 * ratio).ceil() as usize).min(bw).max(1);
+        for (n, &i) in chunk.iter().enumerate() {
+            let g = &crops[pick[i]];
+            let rw = ((IMG_H as f32 * ratio_of(i)).ceil() as usize)
+                .min(bw)
+                .max(1);
             let small = super::resize(g, rw, IMG_H);
             for y in 0..IMG_H {
                 for x in 0..rw {
                     let v = (small.at(x, y) as f32 / 255.0 - 0.5) / 0.5;
                     for c in 0..3 {
-                        input[[k, c, y, x]] = v;
+                        input[[n, c, y, x]] = v;
                     }
                 }
             }
@@ -59,9 +92,9 @@ pub fn recognize(
         let outputs = sess.run(ort::inputs!["x" => tensor]).map_err(oe)?;
         let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(oe)?;
         let (t_len, n_cls) = (shape[1] as usize, shape[2] as usize);
-        for (k, &i) in chunk.iter().enumerate() {
+        for (n, &i) in chunk.iter().enumerate() {
             out[i] = ctc_decode(
-                &data[k * t_len * n_cls..(k + 1) * t_len * n_cls],
+                &data[n * t_len * n_cls..(n + 1) * t_len * n_cls],
                 t_len,
                 n_cls,
                 charset,

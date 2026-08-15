@@ -261,7 +261,25 @@ impl Engine {
         let mut s = self.take(Which::Rec)?;
         let texts = rec::recognize(&mut s, &crops, &self.charset);
         self.give_back(Which::Rec, s);
-        let texts = texts?;
+        let mut texts = texts?;
+
+        // ---- 4.5 罗马数字序号拉宽重认 ----
+        let pick: Vec<usize> = texts
+            .iter()
+            .enumerate()
+            .filter(|(_, (t, _))| marker_run(t).is_some())
+            .map(|(i, _)| i)
+            .collect();
+        if !pick.is_empty() {
+            let mut s = self.take(Which::Rec)?;
+            let r = rec::recheck(&mut s, &crops, &pick, &self.charset);
+            self.give_back(Which::Rec, s);
+            for (&i, (t2, _)) in pick.iter().zip(r?) {
+                if let Some(t) = take_longer_run(&texts[i].0, &t2) {
+                    texts[i].0 = t;
+                }
+            }
+        }
 
         // ---- 5. 组装: 框映射回原图坐标 ----
         let mut out = Vec::new();
@@ -281,6 +299,43 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+/// 行首那串竖笔画序号有多长 —— `i.` / `ii.` / `iii.` / `1.` / `l)` 这种
+///
+/// 只认竖笔画: 罗马数字里会重复的就 i 一个, l 和 1 长得一样容易串, 别的字母
+/// (a/v/x)笔画各不相同, 不吃下面那个毛病。
+fn marker_run(t: &str) -> Option<(char, usize)> {
+    let head = t.chars().next().filter(|c| "iIlL1".contains(*c))?;
+    let n = t.chars().take_while(|c| *c == head).count();
+    match t.chars().nth(n) {
+        Some('.') | Some(')') => Some((head, n)),
+        _ => None,
+    }
+}
+
+/// 两次识别里取序号更长的那个, 其余部分必须一字不差才换
+///
+/// CTC 每帧覆盖约 8 像素宽, 行高归一到 48 之后 "iii" 三根竖笔的间距只剩一帧
+/// 多一点。两根笔画挤进同一帧, 贪心解码把它们当成同一个字符去重, iii 就成了
+/// ii —— Conclusion-for-QA 第 2 页那条正是如此, 而同一份文档里更短的两条 iii
+/// 又是对的: 差别只在笔画落在帧边界的哪一侧, 分辨率不够时纯看运气。
+///
+/// 反过来 CTC 不会把一根笔画拆成两个字符, 所以"谁认出的笔画多信谁"是站得住的。
+///
+/// 只换序号那一段。拉宽会把字形挤出模型训练时见过的比例: 实测整篇拉 1.5 倍,
+/// 配套.pdf 会多出十来处空格和全半角标点的新错(拉 2 倍连 iii 自己都认不出了)。
+/// 所以宁可放过一处, 也不拿正文去赌。
+fn take_longer_run(old: &str, new: &str) -> Option<String> {
+    let ((ca, a), (cb, b)) = (marker_run(old)?, marker_run(new)?);
+    if ca != cb || b <= a {
+        return None;
+    }
+    let tail = |s: &str, n: usize| s.chars().skip(n).collect::<String>();
+    if tail(old, a) != tail(new, b) {
+        return None;
+    }
+    Some(new.to_string())
 }
 
 /// 整页缩放到 [MIN_SIDE, MAX_SIDE], 返回缩放后的图与"还原回原尺寸"的比例
@@ -351,4 +406,41 @@ pub fn rot180(g: &Gray) -> Gray {
     let mut px = g.px.clone();
     px.reverse();
     Gray { w: g.w, h: g.h, px }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roman_marker_is_picked_up() {
+        assert_eq!(marker_run("iii. Self Order"), Some(('i', 3)));
+        assert_eq!(marker_run("1) 首款"), Some(('1', 1)));
+        assert_eq!(marker_run("a. VIP data"), None);
+        assert_eq!(marker_run("iv. 混着别的字母就不算"), None);
+        assert_eq!(marker_run("i 后面没有点也不算"), None);
+    }
+
+    /// 拉宽重认多出一根竖笔 -> 采纳
+    #[test]
+    fn a_longer_run_wins() {
+        assert_eq!(
+            take_longer_run("ii. First consider", "iii. First consider").as_deref(),
+            Some("iii. First consider")
+        );
+    }
+
+    /// 正文跟着变了就整条不要 —— 拉宽会带出空格和标点的新错
+    #[test]
+    fn a_changed_tail_is_rejected() {
+        assert_eq!(take_longer_run("ii. First", "iii.First"), None);
+    }
+
+    /// 认少了、认成别的字, 都以第一遍为准
+    #[test]
+    fn only_gaining_strokes_counts() {
+        assert_eq!(take_longer_run("iii. x", "ii. x"), None);
+        assert_eq!(take_longer_run("ii. x", "ii. x"), None);
+        assert_eq!(take_longer_run("ii. x", "lll. x"), None);
+    }
 }
