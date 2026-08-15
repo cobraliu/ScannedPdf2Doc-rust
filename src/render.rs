@@ -409,7 +409,14 @@ pub fn page_failed(doc: &mut Docx, page_no: usize, err: &str, st: &mut State) {
         false,
         false,
     );
-    *st = State::default(); // 断了就别再往上一页的表里接
+    // 断了就别再往上一页的表里接。但缩进档位表得留着 —— 它攒的是全文的
+    // 左边界, 跟哪一页坏了没关系。整个 State 一起清掉的话, 零点会从空表重算,
+    // 失败点后面每一段的缩进都跟前面对不上。手机上尤其容易踩: 扫二十页糊掉
+    // 一页是常事。
+    *st = State {
+        ind: std::mem::take(&mut st.ind),
+        ..State::default()
+    };
 }
 
 #[cfg(test)]
