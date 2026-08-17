@@ -33,9 +33,12 @@ pub struct Item {
 
 /// 建 session 时的取舍开关
 ///
-/// 这里每一项都只改"怎么算", 不改"算什么": 喂进去的张量、走的算子、算子的
-/// 实现全都一模一样, CPU 上又是确定性的, 所以任何组合下识别结果都逐字相同,
+/// 前五项只改"怎么算", 不改"算什么": 喂进去的张量、走的算子、算子的实现
+/// 全都一模一样, CPU 上又是确定性的, 所以任何组合下识别结果都逐字相同,
 /// 变的只有耗时和峰值内存。手机上内存比速度金贵, 这几个开关就是拿时间换内存的。
+///
+/// 最后两项(`det_max_side`、`rec_file`)不一样, 它们会改结果 —— 各自的文档
+/// 里写了会怎么改。
 #[derive(Debug, Clone)]
 pub struct EngineOptions {
     /// 单个算子内部的线程数; None = 跟可用核心数走
@@ -62,6 +65,17 @@ pub struct EngineOptions {
     /// 用的仍然是整页原图, 认字的清晰度不受影响; 受影响的是"框画得准不准",
     /// 极端情况下小字会漏检。定成多少必须拿实拍件测过再说。
     pub det_max_side: Option<f32>,
+    /// 换一个识别模型(语言包); None = 用内置那个中英混排的
+    ///
+    /// **这一项直接决定认得出哪些字。** 字表内嵌在 rec 模型的 metadata 里,
+    /// 换个 .onnx 就换了一整套字 —— 韩语那个模型认得谚文, 但一个汉字都不认;
+    /// 内置那个反过来。检测和方向分类跟语言无关(它们只看笔画怎么分布, 不认字),
+    /// 所以一个"语言包"就是一个 rec 文件, 没有别的。
+    ///
+    /// 只接受文件名, 不接受路径 —— 值本身是从上层的语言表里查出来的, 不该
+    /// 有分隔符; 真出现了就是上层拼错了, 早点报出来比 join 出一个仓库外的
+    /// 路径强。
+    pub rec_file: Option<String>,
 }
 
 impl Default for EngineOptions {
@@ -73,6 +87,7 @@ impl Default for EngineOptions {
             lazy: false,
             deterministic: false,
             det_max_side: None,
+            rec_file: None,
         }
     }
 }
@@ -104,7 +119,8 @@ enum Which {
 }
 
 impl Which {
-    fn file(self) -> &'static str {
+    /// 不指定语言包时用的那三个
+    fn default_file(self) -> &'static str {
         match self {
             Which::Det => "PP-OCRv6_det_small.onnx",
             Which::Cls => "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
@@ -133,6 +149,13 @@ impl Engine {
     }
 
     pub fn load_with(model_dir: &Path, opts: EngineOptions) -> Result<Self> {
+        if let Some(f) = &opts.rec_file {
+            // 只在这儿查一次。往下 build() 每次都要 join, 那时候再查是查在
+            // 一条会走很多遍的路上, 而且报错离出错的地方更远
+            if f.is_empty() || f.contains('/') || f.contains('\\') {
+                return Err(anyhow!("识别模型只能给文件名, 给的是: {f:?}"));
+            }
+        }
         let mut e = Self {
             dir: model_dir.to_path_buf(),
             opts,
@@ -148,13 +171,14 @@ impl Engine {
             e.det = Some(e.build(Which::Det)?);
             e.cls = Some(e.build(Which::Cls)?);
         }
-        // 字表内嵌在 rec 模型的 metadata 里(PP-OCRv6 起是这样), 不用另带字典文件
+        // 字表内嵌在 rec 模型的 metadata 里(RapidOCR 转 onnx 时塞进去的),
+        // 不用另带字典文件 —— 也正因如此, 换个 rec 文件就自动换了一套字
         let rec = e.build(Which::Rec)?;
         e.charset = {
             let meta = rec.metadata().map_err(oe)?;
-            let raw = meta
-                .custom("character")
-                .context("rec 模型里没有 character 元数据")?;
+            let raw = meta.custom("character").with_context(|| {
+                format!("{} 里没有 character 元数据", e.file(Which::Rec))
+            })?;
             let mut cs: Vec<String> = vec!["blank".into()];
             cs.extend(raw.lines().map(|s| s.trim_end_matches('\r').to_string()));
             cs.push(" ".into());
@@ -168,13 +192,21 @@ impl Engine {
         Ok(e)
     }
 
+    /// 这一步该加载哪个文件 —— 只有识别(rec)会被语言包换掉
+    fn file(&self, w: Which) -> &str {
+        match (w, self.opts.rec_file.as_deref()) {
+            (Which::Rec, Some(f)) => f,
+            _ => w.default_file(),
+        }
+    }
+
     fn build(&self, w: Which) -> Result<Session> {
         let threads = self.opts.intra_threads.unwrap_or_else(|| {
             std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4)
         });
-        let p = self.dir.join(w.file());
+        let p = self.dir.join(self.file(w));
         let mut b = Session::builder()
             .map_err(oe)?
             .with_optimization_level(GraphOptimizationLevel::Level3)
