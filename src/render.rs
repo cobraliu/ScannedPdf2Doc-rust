@@ -5,7 +5,8 @@
 //! 支离破碎的表。
 
 use crate::config::Config;
-use crate::docx::{Align, Docx, Fmt, CM};
+use crate::docx::{Align, CellOpt, Docx, Fmt, CM};
+use crate::layout::grid;
 use crate::layout::grid::Grid;
 use crate::layout::para::{
     build_rows, bullet, end_punct, heading_level, is_header_row, mark_bullets, merge_paras,
@@ -214,7 +215,7 @@ fn fill_row(doc: &Docx, txt: &[String], widths: &[i32], bold_first: bool, header
     let mut cells = String::new();
     for (k, t) in txt.iter().enumerate() {
         let f = Fmt::new(10.0).bold(header || (bold_first && k == 0));
-        cells.push_str(&doc.cell(t, widths[k], 1, None, &f, false));
+        cells.push_str(&doc.cell(t, widths[k], &f, &CellOpt::default()));
     }
     doc.row(&cells, header)
 }
@@ -235,7 +236,7 @@ fn write_grid(doc: &mut Docx, id: usize, g: &Grid, widths: &[i32], head: bool) -
         let mut c = 0usize;
         while c < nc {
             let Some(k) = orow[c] else {
-                row.push_str(&doc.cell("", widths[c], 1, None, &Fmt::new(size), false));
+                row.push_str(&doc.cell("", widths[c], &Fmt::new(size), &CellOpt::default()));
                 c += 1;
                 continue;
             };
@@ -253,8 +254,24 @@ fn write_grid(doc: &mut Docx, id: usize, g: &Grid, widths: &[i32], head: bool) -
                 cell.text.as_str()
             };
             let f = Fmt::new(size).bold(head && r == 0);
-            let center = cell.w > 1 || cell.h > 1;
-            row.push_str(&doc.cell(text, w, cell.w, vm, &f, center));
+            // 照原件逐边画: 签章表只有外框没有内线、三线表只画上下两条,
+            // 一律铺满反而不像原件。
+            // 纵向合并的格子每一行都要写一遍, 但上边框只属于第一行、下边框只
+            // 属于最后一行 —— 每行都写一遍会在合并块中间横生出几条线来。
+            let mut edges = cell.edges;
+            if r != cell.r {
+                edges[grid::TOP] = false;
+            }
+            if r != cell.r + cell.h - 1 {
+                edges[grid::BOTTOM] = false;
+            }
+            let o = CellOpt {
+                span: cell.w,
+                vmerge: vm,
+                center: cell.w > 1 || cell.h > 1,
+                edges: Some(edges),
+            };
+            row.push_str(&doc.cell(text, w, &f, &o));
             c += cell.w;
         }
         let r_xml = doc.row(&row, head && r == 0);

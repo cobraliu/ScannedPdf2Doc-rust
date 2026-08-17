@@ -6,11 +6,12 @@
 
 use anyhow::Result;
 use regex::Regex;
-use rust_xlsxwriter::{Color, Format, FormatAlign, Workbook};
+use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use crate::layout::grid;
 use crate::layout::grid::Grid;
 use crate::layout::line::FRAC_SEP;
 use crate::layout::para::{build_rows, is_header_row};
@@ -216,10 +217,10 @@ impl Book {
         *e = (*e).max(disp_w(t));
     }
 
-    /// 框线表格写进工作表: 原件合并的格子在这里也合并
+    /// 框线表格写进工作表: 原件合并的格子在这里也合并, 边框照原件逐边画
     ///
-    /// 只合并"有字"的块 —— 空白区照原样合并只会留下一大片死区, 反正没边框,
-    /// 看不出区别。
+    /// 空白格原先一律跳过 —— 那会儿不画边框, 合不合并看不出区别。现在画了,
+    /// 空白但有框的格子就得照写, 否则表格中间缺一块线。
     fn sheet_grid(&mut self, g: &Grid, page_no: usize, cont: bool) {
         if cont {
             self.extend_mark(page_no);
@@ -230,7 +231,9 @@ impl Book {
         let r0 = self.st.row;
         let cells = g.cells.clone();
         for cell in &cells {
-            if cell.text.is_empty() {
+            // 空格子本来直接跳过。现在只要它有边框就还得写一笔 —— 不写这一格,
+            // 表格中间就会缺一块框线
+            if cell.text.is_empty() && !cell.edges.iter().any(|&e| e) {
                 continue;
             }
             let (val, nfmt, text) = cell_val(&cell.text);
@@ -252,6 +255,21 @@ impl Book {
             }
             if head && cell.r == 0 {
                 f = f.set_bold().set_background_color(Color::RGB(0xEF_EF_EF));
+            }
+            // 照原件逐边画。Excel 的网格线只是屏幕上的参考线, 打印和导出 PDF
+            // 都不出现 —— 框线表得真给它加边框
+            let e = cell.edges;
+            if e[grid::TOP] {
+                f = f.set_border_top(FormatBorder::Thin);
+            }
+            if e[grid::BOTTOM] {
+                f = f.set_border_bottom(FormatBorder::Thin);
+            }
+            if e[grid::LEFT] {
+                f = f.set_border_left(FormatBorder::Thin);
+            }
+            if e[grid::RIGHT] {
+                f = f.set_border_right(FormatBorder::Thin);
             }
             self.puts.push(Put {
                 row: r0 + cell.r as u32,

@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::layout::grid;
 use crate::layout::line::FRAC_SEP;
 
 const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -22,6 +23,22 @@ pub fn esc(t: &str) -> String {
     t.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+/// 单元格上除了文字和宽度之外的那几件事
+///
+/// 攒成一个结构而不是一路加参数: `cell()` 本来就有五个位置参数了, 再加两个,
+/// 调用处全是没名字的 true/false/None, 看不出哪个是哪个。
+#[derive(Clone, Copy, Default)]
+pub struct CellOpt {
+    /// 横跨几列; 0 和 1 都表示不跨
+    pub span: usize,
+    /// Some(true)=纵向合并的起始格, Some(false)=被并掉的格
+    pub vmerge: Option<bool>,
+    /// 文字上下左右都居中
+    pub center: bool,
+    /// 四条边画不画(顺序 上 右 下 左); None = 跟着表格设的走
+    pub edges: Option<[bool; 4]>,
 }
 
 /// 段落的横向对齐
@@ -198,21 +215,29 @@ impl Docx {
     }
 
     /// 新起一张表, 返回表格句柄(下标)
+    ///
+    /// 框线表除了挂 TableGrid 这个样式, 还把六条边显式写一遍。样式引用是
+    /// "指过去"而不是"画出来", WPS、Pages、Google Docs 这些不解析表格样式的
+    /// 读者拿到的就是一张没有线的表 —— 显式写一遍谁都赖不掉。
     pub fn new_table(&mut self, widths: &[i32], grid_style: bool) -> usize {
         let id = self.tables.len();
         let mut xml = String::from("<w:tbl><w:tblPr>");
         if grid_style {
             xml.push_str(r#"<w:tblStyle w:val="TableGrid"/>"#);
         }
-        xml.push_str(r#"<w:tblW w:w="0" w:type="auto"/><w:tblLayout w:type="fixed"/>"#);
-        if !grid_style {
-            // 无框线表格: 六条边全设 none
-            xml.push_str("<w:tblBorders>");
-            for e in ["top", "left", "bottom", "right", "insideH", "insideV"] {
-                xml.push_str(&format!(r#"<w:{e} w:val="none" w:sz="0"/>"#));
-            }
-            xml.push_str("</w:tblBorders>");
+        // tblPr 里子元素的先后顺序是 schema 定死的: tblW 之后是 tblBorders,
+        // 再往后才是 tblLayout。写反了严格一点的读者会报文档损坏
+        xml.push_str(r#"<w:tblW w:w="0" w:type="auto"/>"#);
+        xml.push_str("<w:tblBorders>");
+        for e in ["top", "left", "bottom", "right", "insideH", "insideV"] {
+            xml.push_str(&if grid_style {
+                format!(r#"<w:{e} w:val="single" w:sz="4" w:space="0" w:color="auto"/>"#)
+            } else {
+                format!(r#"<w:{e} w:val="none" w:sz="0" w:space="0" w:color="auto"/>"#)
+            });
         }
+        xml.push_str("</w:tblBorders>");
+        xml.push_str(r#"<w:tblLayout w:type="fixed"/>"#);
         xml.push_str("</w:tblPr><w:tblGrid>");
         for w in widths {
             xml.push_str(&format!(r#"<w:gridCol w:w="{w}"/>"#));
@@ -232,24 +257,34 @@ impl Docx {
     ///
     /// `span` 横跨几列, `vmerge` 取 Some(true)=起始格 / Some(false)=被并掉的格。
     /// 文本里的 '\n' 写成多个段落 —— 单元格里换行只能这么写。
-    pub fn cell(
-        &self,
-        text: &str,
-        w: i32,
-        span: usize,
-        vmerge: Option<bool>,
-        f: &Fmt,
-        center: bool,
-    ) -> String {
+    pub fn cell(&self, text: &str, w: i32, f: &Fmt, o: &CellOpt) -> String {
         let mut tcpr = format!(r#"<w:tcW w:w="{w}" w:type="dxa"/>"#);
-        if span > 1 {
-            tcpr.push_str(&format!(r#"<w:gridSpan w:val="{span}"/>"#));
+        if o.span > 1 {
+            tcpr.push_str(&format!(r#"<w:gridSpan w:val="{}"/>"#, o.span));
         }
-        match vmerge {
+        match o.vmerge {
             Some(true) => tcpr.push_str(r#"<w:vMerge w:val="restart"/>"#),
             Some(false) => tcpr.push_str("<w:vMerge/>"),
             None => {}
         }
+        // tcPr 的顺序同样是定死的: vMerge 之后 tcBorders, 再往后才是 vAlign
+        if let Some(e) = o.edges {
+            tcpr.push_str("<w:tcBorders>");
+            for (name, on) in [
+                ("top", e[grid::TOP]),
+                ("left", e[grid::LEFT]),
+                ("bottom", e[grid::BOTTOM]),
+                ("right", e[grid::RIGHT]),
+            ] {
+                tcpr.push_str(&if on {
+                    format!(r#"<w:{name} w:val="single" w:sz="4" w:space="0" w:color="auto"/>"#)
+                } else {
+                    format!(r#"<w:{name} w:val="none" w:sz="0" w:space="0" w:color="auto"/>"#)
+                });
+            }
+            tcpr.push_str("</w:tcBorders>");
+        }
+        let center = o.center;
         if center {
             tcpr.push_str(r#"<w:vAlign w:val="center"/>"#);
         }
@@ -281,14 +316,12 @@ impl Docx {
     /// 跨页续表时把「原第 N 页」做成表内整行, 免得为了插标记把表切断
     pub fn marker_row(&self, page: &str, ncols: usize, total_w: i32) -> String {
         let f = Fmt::new(8.0).color("999999");
-        let cell = self.cell(
-            &crate::tr!(crate::i18n::K::MarkPage, page),
-            total_w,
-            ncols,
-            None,
-            &f,
-            true,
-        );
+        let o = CellOpt {
+            span: ncols,
+            center: true,
+            ..Default::default()
+        };
+        let cell = self.cell(&crate::tr!(crate::i18n::K::MarkPage, page), total_w, &f, &o);
         self.row(&cell, false)
     }
 
