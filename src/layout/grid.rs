@@ -630,4 +630,77 @@ mod tests {
         assert_eq!(cells[0].edges, [true, true, true, false], "左边没线");
         assert_eq!(cells[1].edges, [true, false, true, true], "右边没线");
     }
+
+    /// 一张 w×h 的白纸, 用来画测试样张。坐标是构造的, 不是量出来的
+    fn paper(w: usize, h: usize) -> Gray {
+        Gray {
+            w,
+            h,
+            px: vec![255; w * h],
+        }
+    }
+
+    /// 画一条 3px 粗的横线/竖线
+    fn ink(g: &mut Gray, x0: usize, y0: usize, x1: usize, y1: usize) {
+        let w = g.w;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                g.px[y * w + x] = 0;
+            }
+        }
+    }
+
+    /// 三行横线 + 两条内部竖线, 左右不封口 —— 报价单、明细表常见的样子。
+    /// 每格里放一块字。
+    fn unclosed_table() -> Gray {
+        let mut g = paper(1200, 800);
+        for y in [200, 400, 600] {
+            ink(&mut g, 100, y, 1100, y + 3);
+        }
+        for x in [433, 766] {
+            ink(&mut g, x, 200, x + 3, 603);
+        }
+        g
+    }
+
+    fn six_cells_of_text() -> Vec<Box2> {
+        let mut out = Vec::new();
+        for y in [240.0, 440.0] {
+            for x in [150.0, 470.0, 800.0] {
+                out.push(bx(x, y, x + 250.0, y + 60.0));
+            }
+        }
+        out
+    }
+
+    /// 左右不封口时, 列边界只到最外侧那条内部竖线, 外面那两列连字带线全掉在
+    /// 表外 —— 横线画到哪儿表就宽到哪儿, 拿它把边界补回来, 三列才齐。
+    #[test]
+    fn widens_a_table_that_is_not_closed_on_the_sides() {
+        let g = &find_grids(&unclosed_table(), &six_cells_of_text())[0];
+        assert_eq!(g.xs.len(), 4, "三列, 左右边界是横线的两端");
+        assert!(
+            g.xs[0] < 110.0 && g.xs[3] > 1090.0,
+            "补到横线端点: {:?}",
+            g.xs
+        );
+        assert_eq!(g.cells.len(), 6);
+        for c in &g.cells {
+            let (first, last) = (c.c == 0, c.c + c.w == 3);
+            assert_eq!(c.edges[LEFT], !first, "第 {} 列的左边", c.c);
+            assert_eq!(c.edges[RIGHT], !last, "第 {} 列的右边", c.c);
+            assert!(c.edges[TOP] && c.edges[BOTTOM], "横线三条都画了");
+        }
+    }
+
+    /// 但线探出去一截不算一列: 补出来的地方没字就不补, 否则凭空多两空列
+    #[test]
+    fn does_not_widen_into_blank_margins() {
+        let middle_only: Vec<Box2> = six_cells_of_text()
+            .into_iter()
+            .filter(|b| b.x0 == 470.0)
+            .collect();
+        let g = &find_grids(&unclosed_table(), &middle_only)[0];
+        assert_eq!(g.xs.len(), 2, "只有中间一列: {:?}", g.xs);
+    }
 }
