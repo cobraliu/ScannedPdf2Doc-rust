@@ -418,7 +418,7 @@ pub fn page_marker(doc: &mut Docx, page: &Page, page_no: usize, st: &mut State) 
     }
     st.marker = None;
     doc.para(
-        &format!("—— 原第 {page_no} 页 ——"),
+        &crate::tr!(crate::i18n::K::MarkPage, page_no),
         &Fmt::new(8.0).color("999999"),
         0,
         Align::Center,
@@ -429,7 +429,7 @@ pub fn page_marker(doc: &mut Docx, page: &Page, page_no: usize, st: &mut State) 
 /// 单页失败: 留一条醒目占位, 其余页照常输出
 pub fn page_failed(doc: &mut Docx, page_no: usize, err: &str, st: &mut State) {
     doc.para(
-        &format!("[第 {page_no} 页解析失败, 已跳过: {err}]"),
+        &crate::tr!(crate::i18n::K::MarkFailed, page_no, err),
         &Fmt::new(10.5).bold(true).color("C03030"),
         0,
         Align::Left,

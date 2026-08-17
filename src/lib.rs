@@ -13,9 +13,11 @@
 pub mod config;
 pub mod docx;
 pub mod geom;
+pub mod i18n;
 pub mod imgutil;
 pub mod layout;
 pub mod ocr;
+pub mod ocrlang;
 pub mod pdf;
 pub mod render;
 pub mod xlsx;
@@ -24,6 +26,7 @@ use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 
 use config::{Config, Format};
+use i18n::K;
 use layout::Page;
 use ocr::Item;
 
@@ -73,7 +76,7 @@ impl Hooks<'_> {
     }
     fn check(&self) -> Result<()> {
         match self.stop {
-            Some(f) if f() => Err(anyhow!("已取消")),
+            Some(f) if f() => Err(anyhow!("{}", tr!(K::LibCancelled))),
             _ => Ok(()),
         }
     }
@@ -95,15 +98,29 @@ pub struct Converter {
 
 impl Converter {
     pub fn new(model_dir: &Path) -> Result<Self> {
+        Self::new_with(model_dir, ocr::EngineOptions::default())
+    }
+
+    /// 指定识别语言包等开关
+    pub fn new_with(model_dir: &Path, opts: ocr::EngineOptions) -> Result<Self> {
         Ok(Self {
             renderer: pdf::Renderer::new()?,
-            engine: ocr::Engine::load(model_dir)?,
+            engine: ocr::Engine::load_with(model_dir, opts)?,
         })
     }
 
     /// 用默认位置的模型
     pub fn with_default_models() -> Result<Self> {
         Self::new(&locate_models()?)
+    }
+
+    /// 换识别语言: 只重建 OCR 会话, 渲染器一动不动
+    ///
+    /// 不能靠"整个 Converter 重建一遍"来换语言 —— pdfium 的绑定在
+    /// pdfium-render 里是进程级全局的, 再初始化一次会直接报错。
+    pub fn reload_ocr(&mut self, model_dir: &Path, opts: ocr::EngineOptions) -> Result<()> {
+        self.engine = ocr::Engine::load_with(model_dir, opts)?;
+        Ok(())
     }
 
     /// 转换一份 PDF, 返回输出路径
@@ -116,7 +133,7 @@ impl Converter {
         hooks: &Hooks,
     ) -> Result<Outcome> {
         if !pdf.is_file() {
-            return Err(anyhow!("文件不存在: {}", pdf.display()));
+            return Err(anyhow!("{}", tr!(K::LibNoFile, pdf.display())));
         }
         let pdf = pdf.canonicalize().unwrap_or_else(|_| pdf.to_path_buf());
         let name = pdf
@@ -136,9 +153,9 @@ impl Converter {
         let pages = renderer.open(&pdf, cfg.long_edge)?;
         let total = pages.len();
         if total == 0 {
-            return Err(anyhow!("没有任何页面, 文件可能已损坏或被加密"));
+            return Err(anyhow!("{}", tr!(K::LibNoPages)));
         }
-        hooks.say(&format!("[{name}] {total} 页, 识别中(首次启动稍慢)..."));
+        hooks.say(&tr!(K::LibStart, name, total));
 
         let landscape = pages.mostly_landscape();
         let mut doc = fmt.wants_docx().then(|| {
@@ -166,7 +183,7 @@ impl Converter {
         for i in 0..total {
             hooks.check()?;
             let no = i + 1;
-            hooks.tick(Stage::Ocr, no, total, &format!("识别 {no}/{total}"));
+            hooks.tick(Stage::Ocr, no, total, &tr!(K::LibStageOcr, no, total));
             match one_page(&pages, engine, &cache, i, cfg, hooks) {
                 Ok(page) => {
                     render::scan_indents(&mut st, &page, cfg);
@@ -178,10 +195,10 @@ impl Converter {
                 }
                 Err(e) => {
                     let msg = format!("{e:#}");
-                    hooks.say(&format!("  ! 第 {no} 页失败, 已跳过: {msg}"));
+                    hooks.say(&tr!(K::LibPageFailed, no, msg));
                     errors.push(PageError {
                         page: no,
-                        stage: "版面重建",
+                        stage: i18n::t(K::LibStageLayout),
                         msg: msg.clone(),
                     });
                     if let Some(b) = book.as_mut() {
@@ -210,30 +227,22 @@ impl Converter {
         }
 
         hooks.check()?;
-        hooks.tick(Stage::Layout, total, total, "写出文件");
+        hooks.tick(Stage::Layout, total, total, i18n::t(K::LibStageWrite));
         let mut outputs = Vec::new();
         if let Some(d) = doc {
             let out = vacant(&dir, &name, "docx", hooks);
             d.save(&out)?;
-            hooks.say(&format!(
-                "  ✓ {}  ({total} 页, {} KB)",
-                out.display(),
-                kb(&out)
-            ));
+            hooks.say(&tr!(K::LibOutDocx, out.display(), total, kb(&out)));
             outputs.push(out);
         }
         if let Some(b) = book {
             let out = vacant(&dir, &name, "xlsx", hooks);
             let n = b.save(&out)?;
-            hooks.say(&format!(
-                "  ✓ {}  (共导出 {n} 张表格, {} KB)",
-                out.display(),
-                kb(&out)
-            ));
+            hooks.say(&tr!(K::LibOutXlsx, out.display(), n, kb(&out)));
             outputs.push(out);
         }
         if !errors.is_empty() {
-            hooks.say(&format!("  ! 本文件有 {} 处失败(已跳过)", errors.len()));
+            hooks.say(&tr!(K::LibFileErrors, errors.len()));
         }
         hooks.tick(
             Stage::Done,
@@ -266,13 +275,13 @@ fn one_page(
 ) -> Result<layout::Page> {
     let img = pages
         .render(i)
-        .with_context(|| format!("渲染第 {} 页", i + 1))?;
+        .with_context(|| tr!(K::LibRenderPage, i + 1))?;
     let items = match cache.load(i) {
         Some(v) => v,
         None => {
             let v = engine
                 .run(&img)
-                .with_context(|| format!("识别第 {} 页", i + 1))?;
+                .with_context(|| tr!(K::LibOcrPageCtx, i + 1))?;
             cache.save(i, &v);
             v
         }
@@ -288,12 +297,13 @@ fn one_page(
         .iter()
         .filter(|b| matches!(b, layout::Block::Grid(_)))
         .count();
-    hooks.say(&format!(
-        "  第 {} 页: {} 行文字, {} 个块 (无框线表 {tbls} 张, 框线表 {grids} 张), 页眉页脚 {} 行",
+    hooks.say(&i18n::lib_page(
         i + 1,
         items.len(),
         page.blocks.len(),
-        page.header.len() + page.footer.len()
+        tbls,
+        grids,
+        page.header.len() + page.footer.len(),
     ));
     Ok(page)
 }
@@ -324,8 +334,8 @@ fn vacant(dir: &Path, stem: &str, ext: &str, hooks: &Hooks) -> PathBuf {
         out = dir.join(format!("{stem}-{ts}-{n}.{ext}"));
         n += 1;
     }
-    hooks.say(&format!(
-        "  ↷ {} 已存在, 不覆盖, 另存为 {}",
+    hooks.say(&tr!(
+        K::LibExists,
         first.display(),
         out.file_name().unwrap_or_default().to_string_lossy()
     ));
@@ -397,6 +407,25 @@ fn cache_dir() -> Option<PathBuf> {
     }
 }
 
+/// 用户配置目录
+///
+/// 跟 [`cache_dir`] 分开: 界面语言这种东西是用户明确设过的, 不该在他清一次
+/// 缓存之后自己变回去; 语言包相反, 那些是能重新下回来的, 放缓存里正合适。
+pub fn config_dir() -> Option<PathBuf> {
+    let var = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    if cfg!(target_os = "windows") {
+        var("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|h| h.join("Library/Application Support"))
+    } else {
+        var("XDG_CONFIG_HOME").or_else(|| var("HOME").map(|h| h.join(".config")))
+    }
+}
+
 /// 找模型目录: 环境变量 -> 可执行文件同目录 -> 用户缓存目录 -> 源码树
 pub fn locate_models() -> Result<PathBuf> {
     let ok = |p: &Path| p.join("PP-OCRv6_rec_small.onnx").is_file();
@@ -424,9 +453,7 @@ pub fn locate_models() -> Result<PathBuf> {
             return Ok(c);
         }
     }
-    Err(anyhow!(
-        "找不到 OCR 模型。把三个 .onnx 放进程序同目录的 models/, 或用环境变量 PDF2DOC_MODELS 指定。"
-    ))
+    Err(anyhow!("{}", tr!(K::LibNoModels)))
 }
 
 #[cfg(test)]

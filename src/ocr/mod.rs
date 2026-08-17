@@ -74,8 +74,15 @@ pub struct EngineOptions {
     ///
     /// 只接受文件名, 不接受路径 —— 值本身是从上层的语言表里查出来的, 不该
     /// 有分隔符; 真出现了就是上层拼错了, 早点报出来比 join 出一个仓库外的
-    /// 路径强。
+    /// 路径强。目录另见 [`EngineOptions::rec_dir`]。
     pub rec_file: Option<String>,
+    /// 到哪个目录里去找 `rec_file`; None = 跟另外两个模型同一个目录
+    ///
+    /// 有这一项是因为桌面版那边两批文件不在一处: 内置的三个模型跟程序放在
+    /// 一起(macOS 上还在 .app 里面), 装进 /Applications 之后普通用户写不
+    /// 进去, 所以下下来的语言包只能落在用户缓存目录。检测和方向分类仍然从
+    /// `model_dir` 读 —— 它们跟语言无关, 换不换语言包都是那两个文件。
+    pub rec_dir: Option<PathBuf>,
 }
 
 impl Default for EngineOptions {
@@ -88,6 +95,7 @@ impl Default for EngineOptions {
             deterministic: false,
             det_max_side: None,
             rec_file: None,
+            rec_dir: None,
         }
     }
 }
@@ -176,9 +184,9 @@ impl Engine {
         let rec = e.build(Which::Rec)?;
         e.charset = {
             let meta = rec.metadata().map_err(oe)?;
-            let raw = meta.custom("character").with_context(|| {
-                format!("{} 里没有 character 元数据", e.file(Which::Rec))
-            })?;
+            let raw = meta
+                .custom("character")
+                .with_context(|| format!("{} 里没有 character 元数据", e.file(Which::Rec)))?;
             let mut cs: Vec<String> = vec!["blank".into()];
             cs.extend(raw.lines().map(|s| s.trim_end_matches('\r').to_string()));
             cs.push(" ".into());
@@ -200,13 +208,22 @@ impl Engine {
         }
     }
 
+    /// 完整路径。rec 可能被指到别的目录去(见 `EngineOptions::rec_dir`)
+    fn path(&self, w: Which) -> PathBuf {
+        let dir = match (w, self.opts.rec_dir.as_deref()) {
+            (Which::Rec, Some(d)) => d,
+            _ => &self.dir,
+        };
+        dir.join(self.file(w))
+    }
+
     fn build(&self, w: Which) -> Result<Session> {
         let threads = self.opts.intra_threads.unwrap_or_else(|| {
             std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4)
         });
-        let p = self.dir.join(self.file(w));
+        let p = self.path(w);
         let mut b = Session::builder()
             .map_err(oe)?
             .with_optimization_level(GraphOptimizationLevel::Level3)

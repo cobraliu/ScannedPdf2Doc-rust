@@ -67,9 +67,9 @@ fn cell_val(t: &str) -> (Option<f64>, Option<String>, String) {
 
 fn mark(a: usize, b: usize) -> String {
     if a == b {
-        format!("—— 原第 {a} 页 ——")
+        crate::tr!(crate::i18n::K::MarkPage, a)
     } else {
-        format!("—— 原第 {a}–{b} 页 ——")
+        crate::tr!(crate::i18n::K::MarkPages, a, b)
     }
 }
 
@@ -320,7 +320,7 @@ impl Book {
             row: self.st.row,
             col: 0,
             val: None,
-            text: format!("[第 {page_no} 页解析失败, 已跳过: {err}]"),
+            text: crate::tr!(crate::i18n::K::MarkFailed, page_no, err),
             fmt: Format::new()
                 .set_bold()
                 .set_font_color(Color::RGB(0xC0_30_30)),
@@ -334,7 +334,7 @@ impl Book {
     pub fn save(self, path: &Path) -> Result<usize> {
         let mut wb = Workbook::new();
         let ws = wb.add_worksheet();
-        ws.set_name("表格")?;
+        ws.set_name(crate::i18n::t(crate::i18n::K::SheetName))?;
 
         let mut tfmt = Format::new().set_bold().set_font_size(14);
         if self.st.maxc > 1 {
@@ -381,7 +381,7 @@ impl Book {
             ws.set_column_width(c as u16, (w + 2).clamp(8, 42) as f64)?;
         }
         if self.st.n == 0 {
-            ws.write_string(2, 0, "（本文件没有识别到表格。整页版面请用 Word 输出。）")?;
+            ws.write_string(2, 0, crate::i18n::t(crate::i18n::K::NoTableFound))?;
         }
         // 走 save_to_writer 只为拿 create_new: Workbook::save 内部是 File::create,
         // 会闷声覆盖。调用方已经挑过空名字, 这里是第二道闸

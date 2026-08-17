@@ -282,7 +282,7 @@ impl Docx {
     pub fn marker_row(&self, page: &str, ncols: usize, total_w: i32) -> String {
         let f = Fmt::new(8.0).color("999999");
         let cell = self.cell(
-            &format!("—— 原第 {page} 页 ——"),
+            &crate::tr!(crate::i18n::K::MarkPage, page),
             total_w,
             ncols,
             None,
