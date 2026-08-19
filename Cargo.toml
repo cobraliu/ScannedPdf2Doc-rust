@@ -1,6 +1,6 @@
 [package]
 name = "scannedpdf2doc"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 rust-version = "1.82"
 description = "扫描件 PDF 转可编辑 Word/Excel —— 全本地运行, 不联网"

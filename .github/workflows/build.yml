@@ -175,8 +175,11 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
+          # 逐版的改动列表让 GitHub 自己按提交生成, 附在下面这段固定说明后头 ——
+          # 写死在这儿的"本版新增"下一个 tag 就过时了
+          generate_release_notes: true
           body: |
-            扫描版 PDF -> 可编辑 Word / Excel。全本地运行，不联网、不上传。
+            扫描版 PDF -> 可编辑 Word / Excel / Markdown / 可搜索 PDF。全本地运行，不联网、不上传。
 
             | 平台 | 下载 | 怎么用 |
             |---|---|---|
