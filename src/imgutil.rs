@@ -28,6 +28,17 @@ impl Gray {
     }
 }
 
+/// 24 位彩色图 —— 只在裁印章和插图时用, 主管线一路走灰度
+///
+/// 印章是红的, 签名常是蓝的。灰度图上它们跟正文一个色, 抠出来贴进 Word 就
+/// 成了一团灰印子, 看着不像那么回事 —— 裁的时候得回去要一张彩色的。
+pub struct Rgb {
+    pub w: usize,
+    pub h: usize,
+    /// 每像素三字节
+    pub px: Vec<u8>,
+}
+
 /// 0/1 二值图
 #[derive(Clone)]
 pub struct Bitmap {

@@ -8,7 +8,7 @@
 //! 只在识别那条路上做。走文字层的页不能转: 那些字的坐标来自 PDF 文件本身,
 //! 图一转就跟坐标对不上了 —— 何况原生 PDF 本来也不歪。
 
-use crate::imgutil::Gray;
+use crate::imgutil::{Gray, Rgb};
 
 /// 算墨迹的阈值, 跟正文判深浅用的是同一个数
 const INK: u8 = 160;
@@ -94,14 +94,32 @@ pub fn angle(g: &Gray) -> f32 {
 }
 
 /// 绕图心转 `deg` 度; 转出边界的地方填白
-///
-/// 反向映射 + 双线性: 正向映射会在目标图上留下没被写到的空洞。空出来的角落
-/// 填白而不是填黑 —— 填黑会被后面当成一大片墨迹, 框线检测和噪声过滤都会中招。
 pub fn apply(g: &Gray, deg: f32) -> Gray {
-    let (w, h) = (g.w, g.h);
+    Gray {
+        w: g.w,
+        h: g.h,
+        px: rotate(&g.px, g.w, g.h, 1, deg),
+    }
+}
+
+/// 同一个角度转彩色图 —— 裁印章要的那张
+pub fn apply_rgb(g: &Rgb, deg: f32) -> Rgb {
+    Rgb {
+        w: g.w,
+        h: g.h,
+        px: rotate(&g.px, g.w, g.h, 3, deg),
+    }
+}
+
+/// 绕图心转 `deg` 度, 反向映射 + 双线性; `ch` 是每像素几个字节(灰度 1, 彩色 3)
+///
+/// 反向映射(照着目标像素回去取源像素)而不是正向: 正向映射会在目标图上留下
+/// 没被写到的空洞。空出来的角落填白而不是填黑 —— 填黑会被后面当成一大片
+/// 墨迹, 框线检测和噪声过滤都会中招。
+fn rotate(px: &[u8], w: usize, h: usize, ch: usize, deg: f32) -> Vec<u8> {
     let (sin, cos) = deg.to_radians().sin_cos();
     let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
-    let mut px = vec![255u8; w * h];
+    let mut out = vec![255u8; w * h * ch];
     for y in 0..h {
         for x in 0..w {
             let (dx, dy) = (x as f32 - cx, y as f32 - cy);
@@ -115,13 +133,17 @@ pub fn apply(g: &Gray, deg: f32) -> Gray {
                 continue;
             }
             let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
-            let i = y0 * w + x0;
-            let top = g.px[i] as f32 * (1.0 - fx) + g.px[i + 1] as f32 * fx;
-            let bot = g.px[i + w] as f32 * (1.0 - fx) + g.px[i + w + 1] as f32 * fx;
-            px[y * w + x] = (top * (1.0 - fy) + bot * fy) as u8;
+            let i = (y0 * w + x0) * ch;
+            let o = (y * w + x) * ch;
+            for c in 0..ch {
+                let top = px[i + c] as f32 * (1.0 - fx) + px[i + ch + c] as f32 * fx;
+                let bot =
+                    px[i + w * ch + c] as f32 * (1.0 - fx) + px[i + w * ch + ch + c] as f32 * fx;
+                out[o + c] = (top * (1.0 - fy) + bot * fy) as u8;
+            }
         }
     }
-    Gray { w, h, px }
+    out
 }
 
 /// 量一下, 歪得够多就转正; 返回量到的歪斜角

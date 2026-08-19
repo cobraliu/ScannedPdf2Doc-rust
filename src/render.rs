@@ -180,6 +180,28 @@ pub fn render_page(doc: &mut Docx, page: &Page, page_no: usize, cfg: &Config, st
                 }
                 st.grid = None;
             }
+            Block::Figure(f) => {
+                // 页图像素换成 twips: 图在纸上占多大, 出来就占多大
+                let k = doc.page_w() / page.w.max(1.0);
+                let (mut w, mut h) = ((f.x1 - f.x0) * k, (f.y1 - f.y0) * k);
+                let cap = doc.usable_w();
+                if w > cap {
+                    h *= cap / w;
+                    w = cap;
+                }
+                // 落款章在右下, 插图多半居中 —— 按它在页上的横向位置摆
+                let cx = (f.x0 + f.x1) / 2.0 / page.w.max(1.0);
+                let align = if cx > 0.62 {
+                    Align::Right
+                } else if cx < 0.38 {
+                    Align::Left
+                } else {
+                    Align::Center
+                };
+                doc.image(f.png.clone(), w as i32, h as i32, align);
+                st.tbl = None;
+                st.grid = None;
+            }
             Block::Text(lines) => {
                 st.grid = None; // 中间隔了正文就不是同一张框线表了
                                 // 注意不清 st.tbl: 无框线表的续表判据是"列数列位对得上", 中间隔了

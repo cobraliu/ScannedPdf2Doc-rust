@@ -44,6 +44,9 @@ struct Args {
     no_flatten: bool,
 
     #[arg(long)]
+    no_figures: bool,
+
+    #[arg(long)]
     models: Option<PathBuf>,
 
     #[arg(short, long)]
@@ -106,6 +109,7 @@ fn parse_localized() -> Args {
         .mut_arg("no_text_layer", |a| a.help(i18n::t(K::HelpNoTextLayer)))
         .mut_arg("no_deskew", |a| a.help(i18n::t(K::HelpNoDeskew)))
         .mut_arg("no_flatten", |a| a.help(i18n::t(K::HelpNoFlatten)))
+        .mut_arg("no_figures", |a| a.help(i18n::t(K::HelpNoFigures)))
         .mut_arg("models", |a| a.help(i18n::t(K::HelpModels)))
         .mut_arg("quiet", |a| a.help(i18n::t(K::HelpQuiet)))
         .mut_arg("lang", |a| a.help(help_lang))
@@ -162,6 +166,7 @@ fn main() {
         text_layer: !a.no_text_layer,
         deskew: !a.no_deskew,
         flatten: !a.no_flatten,
+        keep_figures: !a.no_figures,
         ..Default::default()
     };
 

@@ -93,6 +93,8 @@ pub struct Docx {
     landscape: bool,
     /// 表格在 body 里的插入点 —— 跨页续表要往已写出的表里追加行
     tables: Vec<String>,
+    /// 嵌进去的图片, 打包时写成 word/media/imageN.png
+    media: Vec<Vec<u8>>,
 }
 
 /// body 里用这个占位符标记"第 n 张表格的位置", 收尾时替换成表格 XML
@@ -107,6 +109,7 @@ impl Docx {
             cfg: cfg.clone(),
             landscape,
             tables: Vec::new(),
+            media: Vec::new(),
         }
     }
 
@@ -114,6 +117,11 @@ impl Docx {
     pub fn usable_w(&self) -> f32 {
         let page = if self.landscape { 29.7 } else { 21.0 };
         (page - 5.0) * CM
+    }
+
+    /// 整张纸的宽度(twips), 含页边距 —— 贴图时按它换算比例
+    pub fn page_w(&self) -> f32 {
+        self.usable_w() + 5.0 * CM
     }
 
     fn run_props(&self, f: &Fmt) -> String {
@@ -208,6 +216,48 @@ impl Docx {
         let runs = self.runs(text, f);
         self.body
             .push_str(&format!("<w:p><w:pPr>{ppr}</w:pPr>{runs}</w:p>"));
+    }
+
+    /// 插一张图, 宽高按 twips 给
+    ///
+    /// 走内联(`wp:inline`)而不是浮动: 浮动图得指定锚点和环绕方式, 在一份重建
+    /// 出来的文档里没有可靠的锚可挂, Word 和 WPS 对环绕的解释也不一致。内联
+    /// 图老老实实占一个段落的位置, 到哪个读者手里都是同一个样子。
+    ///
+    /// 命名空间 wp / a / pic 就地声明在用到的元素上 —— 这是 OOXML 里的常规
+    /// 写法, 也免得为了几张图去动 w:document 的根元素。
+    pub fn image(&mut self, png: Vec<u8>, w_tw: i32, h_tw: i32, align: Align) {
+        // rId1 是 styles, rId2 是 numbering, 图片从 rId3 起
+        let rid = self.media.len() + 3;
+        let n = self.media.len() + 1;
+        self.media.push(png);
+        // 1 inch = 1440 twips = 914400 EMU
+        let (cx, cy) = (w_tw as i64 * 635, h_tw as i64 * 635);
+        self.body.push_str(&format!(
+            concat!(
+                r#"<w:p><w:pPr><w:spacing w:before="60" w:after="60"/>{}</w:pPr><w:r><w:drawing>"#,
+                r#"<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">"#,
+                r#"<wp:extent cx="{}" cy="{}"/><wp:docPr id="{}" name="Figure {}"/>"#,
+                r#"<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">"#,
+                r#"<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">"#,
+                r#"<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">"#,
+                r#"<pic:nvPicPr><pic:cNvPr id="{}" name="Figure {}"/><pic:cNvPicPr/></pic:nvPicPr>"#,
+                r#"<pic:blipFill><a:blip r:embed="rId{}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>"#,
+                r#"<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#,
+                r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>"#,
+                r#"</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>"#,
+            ),
+            align.ppr(),
+            cx,
+            cy,
+            n,
+            n,
+            n,
+            n,
+            rid,
+            cx,
+            cy
+        ));
     }
 
     pub fn blank(&mut self) {
@@ -353,26 +403,58 @@ impl Docx {
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         zip.start_file("[Content_Types].xml", opt)?;
-        zip.write_all(CONTENT_TYPES.as_bytes())?;
+        zip.write_all(content_types(!self.media.is_empty()).as_bytes())?;
         zip.start_file("_rels/.rels", opt)?;
         zip.write_all(RELS.as_bytes())?;
         zip.start_file("word/_rels/document.xml.rels", opt)?;
-        zip.write_all(DOC_RELS.as_bytes())?;
+        zip.write_all(doc_rels(self.media.len()).as_bytes())?;
         zip.start_file("word/styles.xml", opt)?;
         zip.write_all(styles(&self.cfg).as_bytes())?;
         zip.start_file("word/numbering.xml", opt)?;
         zip.write_all(numbering().as_bytes())?;
         zip.start_file("word/document.xml", opt)?;
         zip.write_all(doc.as_bytes())?;
+        for (i, png) in self.media.iter().enumerate() {
+            // 图片本身已经是 PNG(自带 deflate), 再压一遍纯属白费, 直接存
+            let raw: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(format!("word/media/image{}.png", i + 1), raw)?;
+            zip.write_all(png)?;
+        }
         zip.finish()?;
         Ok(())
     }
+}
+
+fn content_types(png: bool) -> String {
+    let png = if png {
+        r#"<Default Extension="png" ContentType="image/png"/>"#
+    } else {
+        ""
+    };
+    CONTENT_TYPES.replace("<!--PNG-->", png)
+}
+
+/// styles 和 numbering 是固定的两条, 图片一张一条接在后面
+fn doc_rels(images: usize) -> String {
+    const IMG: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+    let mut s = String::from(DOC_RELS_HEAD);
+    for i in 0..images {
+        s.push_str(&format!(
+            r#"<Relationship Id="rId{}" Type="{IMG}" Target="media/image{}.png"/>"#,
+            i + 3,
+            i + 1
+        ));
+    }
+    s.push_str("</Relationships>");
+    s
 }
 
 const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
+<!--PNG-->
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
@@ -383,11 +465,10 @@ const RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
 </Relationships>"#;
 
-const DOC_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+const DOC_RELS_HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-</Relationships>"#;
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#;
 
 /// Table Grid 样式必须显式定义, 否则 Word 打开时框线不显示
 fn styles(cfg: &Config) -> String {

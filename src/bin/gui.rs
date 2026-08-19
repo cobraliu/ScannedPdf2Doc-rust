@@ -863,6 +863,8 @@ impl eframe::App for App {
                         .on_hover_text(i18n::t(K::DeskewTip));
                     ui.checkbox(&mut self.cfg.flatten, i18n::t(K::Flatten))
                         .on_hover_text(i18n::t(K::FlattenTip));
+                    ui.checkbox(&mut self.cfg.keep_figures, i18n::t(K::Figures))
+                        .on_hover_text(i18n::t(K::FiguresTip));
                     ui.checkbox(&mut self.cfg.grid_tables, i18n::t(K::GridTables));
                     ui.checkbox(&mut self.cfg.tables, i18n::t(K::Tables));
                     ui.checkbox(&mut self.cfg.page_marker, i18n::t(K::PageMarker));

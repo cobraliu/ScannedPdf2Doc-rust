@@ -512,6 +512,33 @@ LongEdgeTip
     ja "実際の dpi はページ寸法から逆算し 150〜300 に収めます。小さくすると速い代わりに小さな文字が落ちます"
     ko "실제 dpi는 페이지 크기에서 역산해 150~300 사이로 맞춥니다. 낮추면 빠르지만 작은 글자를 놓칩니다";
 
+HelpNoFigures
+    zh "不要保留印章/签名/插图"
+    ht "不要保留印章/簽名/插圖"
+    en "Do not keep stamps, signatures or figures"
+    es "No conservar sellos, firmas ni figuras"
+    de "Stempel, Unterschriften und Abbildungen nicht übernehmen"
+    ja "印章・署名・図を残さない"
+    ko "도장·서명·그림을 남기지 않습니다";
+
+Figures
+    zh "保留印章/签名/插图"
+    ht "保留印章/簽名/插圖"
+    en "Keep stamps, signatures and figures"
+    es "Conservar sellos, firmas y figuras"
+    de "Stempel, Unterschriften und Abbildungen übernehmen"
+    ja "印章・署名・図を残す"
+    ko "도장·서명·그림 남기기";
+
+FiguresTip
+    zh "识别只产出「哪儿有什么字」, 一页上凡是不是字的东西到这一步就没了 —— 合同末尾那个红章、手签的名字、示意图和 logo, 转出来的 Word 里一概不见。丢的偏偏是最要紧的几样。\n\n找法是减法: 页面上的墨迹, 减去识别认下的字, 减去表格框线, 剩下成团的就是它。裁的是彩色页图, 红章不会变成一团灰印子。\n\n章盖在字上不要紧: 挖掉的是字框, 章的圈还在。"
+    ht "識別只產出「哪兒有什麼字」，一頁上凡是不是字的東西到這一步就沒了 —— 合同末尾那個紅章、手簽的名字、示意圖和 logo，轉出來的 Word 裡一概不見。丟的偏偏是最要緊的幾樣。\n\n找法是減法：頁面上的墨跡，減去識別認下的字，減去表格框線，剩下成團的就是它。裁的是彩色頁圖，紅章不會變成一團灰印子。\n\n章蓋在字上不要緊：挖掉的是字框，章的圈還在。"
+    en "Recognition only produces \"what text is where\". Everything on the page that is not text ends here — the red seal at the foot of a contract, a handwritten name, a diagram, a logo: none of it reaches the Word file. Those tend to be exactly the parts that matter.\n\nThey are found by subtraction: take the ink on the page, remove the text that was recognised, remove the table rules, and what is left in clumps is the figure. The crop is taken from a colour rendering, so a red seal does not come out as a grey smudge.\n\nA seal stamped over text is fine: what gets removed is the text box, and the ring of the seal stays."
+    es "El reconocimiento solo produce «qué texto hay y dónde». Todo lo que en la página no es texto se pierde aquí: el sello rojo al pie de un contrato, una firma manuscrita, un esquema, un logotipo. Nada de eso llega al archivo de Word, y suele ser justo lo que importa.\n\nSe encuentran por resta: se toma la tinta de la página, se quita el texto reconocido, se quitan las líneas de las tablas, y lo que queda agrupado es la figura. El recorte se hace sobre una versión en color, así que un sello rojo no sale como un borrón gris.\n\nQue el sello caiga encima del texto no importa: lo que se quita es el recuadro del texto y el anillo del sello permanece."
+    de "Die Erkennung liefert nur „welcher Text steht wo“. Alles auf der Seite, was kein Text ist, endet hier — der rote Stempel unter einem Vertrag, ein handgeschriebener Name, eine Skizze, ein Logo: nichts davon erreicht die Word-Datei. Ausgerechnet das sind oft die wichtigsten Teile.\n\nGefunden werden sie durch Subtraktion: die Tinte auf der Seite, abzüglich des erkannten Textes, abzüglich der Tabellenlinien — was in Klumpen übrig bleibt, ist die Abbildung. Ausgeschnitten wird aus einer farbigen Fassung, ein roter Stempel wird also kein grauer Fleck.\n\nEin Stempel über dem Text ist kein Problem: entfernt wird der Textrahmen, der Ring des Stempels bleibt."
+    ja "認識が出すのは「どこに何の文字があるか」だけです。ページ上の文字でないものはここで消えます —— 契約書末尾の朱印、手書きの署名、図、ロゴ。どれも Word には届きません。よりによって一番大事なものばかりです。\n\n探し方は引き算です。ページの墨から、認識できた文字を引き、罫線を引く。かたまりで残ったものが図です。切り出しはカラーの描画から行うので、朱印が灰色のしみになりません。\n\n印が文字に重なっていても平気です。取り除くのは文字の枠で、印の輪は残ります。"
+    ko "인식이 내놓는 것은 \"어디에 어떤 글자가 있는지\"뿐입니다. 페이지에서 글자가 아닌 것은 여기서 사라집니다 — 계약서 끝의 붉은 도장, 손으로 쓴 이름, 도해, 로고. 어느 것도 Word 파일에 닿지 않습니다. 하필 가장 중요한 것들입니다.\n\n찾는 방법은 뺄셈입니다. 페이지의 잉크에서 인식된 글자를 빼고 표의 괘선을 빼면, 덩어리로 남는 것이 그림입니다. 잘라내기는 컬러 렌더링에서 하므로 붉은 도장이 회색 얼룩이 되지 않습니다.\n\n도장이 글자 위에 찍혀 있어도 괜찮습니다. 지우는 것은 글자 상자이고 도장의 테두리는 남습니다.";
+
 HelpNoFlatten
     zh "不要摊平不匀的光照"
     ht "不要攤平不勻的光照"
@@ -1166,6 +1193,15 @@ LibPage
     de "  Seite {0}: {1} Textzeilen, {2} Blöcke ({3} randlose Tabellen, {4} Tabellen mit Linien), {5} Kopf-/Fußzeilen"
     ja "  {0} ページ: 文字 {1} 行、ブロック {2} 個(罫線なしの表 {3}、罫線ありの表 {4})、ヘッダー・フッター {5} 行"
     ko "  {0}쪽: 글자 {1}줄, 블록 {2}개(선 없는 표 {3}, 선 있는 표 {4}), 머리글·바닥글 {5}줄";
+
+LibFigures
+    zh "  第 {0} 页: 保留了 {1} 处印章/签名/插图"
+    ht "  第 {0} 頁：保留了 {1} 處印章/簽名/插圖"
+    en "  page {0}: kept {1} stamps/signatures/figures"
+    es "  página {0}: se han conservado {1} sellos/firmas/figuras"
+    de "  Seite {0}: {1} Stempel/Unterschriften/Abbildungen übernommen"
+    ja "  {0} ページ: 印章・署名・図を {1} 箇所そのまま残しました"
+    ko "  {0}쪽: 도장·서명·그림 {1}곳을 그대로 남겼습니다";
 
 LibFlatten
     zh "  第 {0} 页: 光照差 {1} 级, 已摊平"

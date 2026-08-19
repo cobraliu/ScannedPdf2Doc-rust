@@ -23,6 +23,8 @@ pub struct Config {
     pub deskew: bool,
     /// 光照不匀的页面先摊平(手机拍的纸一边亮一边暗)
     pub flatten: bool,
+    /// 印章/签名/插图照原样裁出来贴进输出
+    pub keep_figures: bool,
 
     // ---- 噪声过滤 ----
     /// 剔除印章/签名一类的短串低置信噪声
@@ -94,6 +96,7 @@ impl Default for Config {
             text_layer: true,
             deskew: true,
             flatten: true,
+            keep_figures: true,
 
             drop_stamp: true,
             stamp_conf: 0.88,

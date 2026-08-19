@@ -80,10 +80,22 @@ impl Line {
 pub enum Block {
     /// 正文段落区
     Text(Vec<Line>),
+    /// 印章 / 签名 / 插图: 原样裁下来的一块图
+    Figure(Fig),
     /// 无框线表格: 行 + 列起点
     Table(Vec<Line>, Vec<f32>),
     /// 有框线表格
     Grid(grid::Grid),
+}
+
+/// 一处照原样保留的图形, 坐标是页图像素
+#[derive(Debug, Clone)]
+pub struct Fig {
+    pub png: Vec<u8>,
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
 }
 
 /// 一页的分析结果
@@ -133,6 +145,54 @@ pub fn analyze(items: &[Item], img: &Gray, cfg: &Config) -> Page {
         w,
         h,
     }
+}
+
+/// 这一块从哪个高度开始 —— 用来把图形按阅读顺序插进去
+fn block_y0(b: &Block) -> f32 {
+    match b {
+        Block::Text(l) | Block::Table(l, _) => l.first().map_or(f32::MAX, |x| x.y0),
+        Block::Grid(g) => g.y0,
+        Block::Figure(f) => f.y0,
+    }
+}
+
+impl Page {
+    /// 页面上认出的框线表 —— 图形检测要拿它当排除区
+    pub fn grids(&self) -> Vec<&grid::Grid> {
+        self.blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Grid(g) => Some(g),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// 把裁好的图形按阅读顺序插进块序列
+    pub fn insert_figs(&mut self, figs: Vec<Fig>) {
+        let blocks = std::mem::take(&mut self.blocks);
+        self.blocks = drop_in_figs(blocks, figs);
+    }
+}
+
+/// 图形按纵坐标插进块序列
+///
+/// 插在"第一个比它更靠下的块"前面。图形常常压在别的东西上(章盖在签名栏上),
+/// 硬要不重叠是做不到的, 排进阅读顺序就够了。
+fn drop_in_figs(blocks: Vec<Block>, figs: Vec<Fig>) -> Vec<Block> {
+    if figs.is_empty() {
+        return blocks;
+    }
+    let mut out: Vec<Block> = Vec::with_capacity(blocks.len() + figs.len());
+    let mut it = blocks.into_iter().peekable();
+    for f in figs {
+        while it.peek().is_some_and(|b| block_y0(b) <= f.y0) {
+            out.push(it.next().expect("peek 过了"));
+        }
+        out.push(Block::Figure(f));
+    }
+    out.extend(it);
+    out
 }
 
 // ---------- 文本工具 ----------

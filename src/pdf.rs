@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use pdfium_render::prelude::*;
 use std::path::{Path, PathBuf};
 
-use crate::imgutil::Gray;
+use crate::imgutil::{Gray, Rgb};
 
 /// 竖线判定(页图像素): 短于这个的是标点、下划线碎片
 const RULE_MIN: f32 = 10.0;
@@ -139,6 +139,19 @@ impl Pages<'_> {
     ///
     /// 坐标走 pdfium 自己的 FPDF_PageToDevice, 吃的是渲染那份同一个 config:
     /// 页面带 /Rotate 的很常见, 文本层坐标是转之前的, 自己拿页高翻 y 会整页错位。
+    /// 同一页的彩色版 —— 只在要裁印章/插图时才渲, 用的是同一套渲染参数,
+    /// 所以跟灰度那张逐像素对得上
+    pub fn render_rgb(&self, i: usize) -> Result<Rgb> {
+        let page = self.doc.pages().get(i as PdfPageIndex)?;
+        let cfg = self.render_cfg(&page);
+        let img = page.render_with_config(&cfg)?.as_image()?.into_rgb8();
+        Ok(Rgb {
+            w: img.width() as usize,
+            h: img.height() as usize,
+            px: img.into_raw(),
+        })
+    }
+
     pub fn chars(&self, i: usize) -> Result<Vec<Ch>> {
         let page = self.doc.pages().get(i as PdfPageIndex)?;
         let cfg = self.render_cfg(&page);

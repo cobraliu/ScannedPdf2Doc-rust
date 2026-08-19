@@ -13,6 +13,7 @@
 pub mod config;
 pub mod deskew;
 pub mod docx;
+pub mod figure;
 pub mod geom;
 pub mod i18n;
 pub mod imgutil;
@@ -284,8 +285,11 @@ fn one_page(
     let mut img = pages
         .render(i)
         .with_context(|| tr!(K::LibRenderPage, i + 1))?;
-    let items = read_page(pages, engine, cache, &mut img, i, cfg, hooks)?;
-    let page = layout::analyze(&items, &img, cfg);
+    let (items, skew) = read_page(pages, engine, cache, &mut img, i, cfg, hooks)?;
+    // 版面先分析出来, 图形检测要拿表格和页眉页脚当排除区
+    let mut page = layout::analyze(&items, &img, cfg);
+    let figs = keep_figures(pages, &img, &items, &page, i, skew, cfg, hooks);
+    page.insert_figs(figs);
     let tbls = page
         .blocks
         .iter()
@@ -320,7 +324,7 @@ fn read_page(
     i: usize,
     cfg: &Config,
     hooks: &Hooks,
-) -> Result<Vec<ocr::Item>> {
+) -> Result<(Vec<ocr::Item>, f32)> {
     if cfg.text_layer {
         // 取不到文字层不是错: 加密的、结构坏掉的 PDF 都可能在这儿失败,
         // 而它们照样能渲染出图来识别
@@ -330,7 +334,7 @@ fn read_page(
             // 拿不到框线不影响出字, 只是相邻两格挨得太紧时分不开, 所以失败
             // 了就当没有线接着走
             let rules = pages.vrules(i).unwrap_or_default();
-            return Ok(textlayer::items(&chars, &rules));
+            return Ok((textlayer::items(&chars, &rules), 0.0));
         }
     }
     // 摊平排在转正前面: 转正是数墨点数出来的, 用的也是固定阈值, 一边亮一边暗
@@ -343,22 +347,71 @@ fn read_page(
     }
     // 转正要在识别之前, 而且转完的图得留给后面的框线检测 —— 两边看的必须是
     // 同一张图, 否则识别出来的字框跟框线差着一个角度
+    let mut skew = 0.0;
     if cfg.deskew {
-        let a = deskew::straighten(img);
-        if a != 0.0 {
-            hooks.say(&tr!(K::LibDeskew, i + 1, format!("{a:+.1}")));
+        skew = deskew::straighten(img);
+        if skew != 0.0 {
+            hooks.say(&tr!(K::LibDeskew, i + 1, format!("{skew:+.1}")));
         }
     }
     // 缓存只存识别结果: 识别占九成时间, 渲染反而很快。文字层这条路本来就快,
     // 不值得再存一份, 存了反而会在开关切换时读到另一条路的结果
     if let Some(v) = cache.load(i) {
-        return Ok(v);
+        return Ok((v, skew));
     }
     let v = engine
         .run(img)
         .with_context(|| tr!(K::LibOcrPageCtx, i + 1))?;
     cache.save(i, &v);
-    Ok(v)
+    Ok((v, skew))
+}
+
+/// 印章 / 签名 / 插图: 找出来, 再从彩色页图上照原样裁下来
+///
+/// 裁的是彩色那张 —— 红章灰了就不成其为章。彩色页只在真有东西要裁时才渲,
+/// 平常一页也不多花。裁之前要按同一个角度转一遍: 灰度图早被摆正了, 不转的
+/// 话裁下来的位置对不上。角度是转正时量到的那个, 不重新量, 免得两张图各转
+/// 各的。
+#[allow(clippy::too_many_arguments)]
+fn keep_figures(
+    pages: &pdf::Pages,
+    img: &imgutil::Gray,
+    items: &[ocr::Item],
+    page: &layout::Page,
+    i: usize,
+    skew: f32,
+    cfg: &Config,
+    hooks: &Hooks,
+) -> Vec<layout::Fig> {
+    let rects = figure::find(img, items, page, cfg);
+    if rects.is_empty() {
+        return Vec::new();
+    }
+    // 渲不出彩色页不算错: 少几张图总比整页转不出来强
+    let Ok(rgb) = pages.render_rgb(i) else {
+        return Vec::new();
+    };
+    let rgb = if skew != 0.0 {
+        deskew::apply_rgb(&rgb, -skew)
+    } else {
+        rgb
+    };
+    let figs: Vec<layout::Fig> = rects
+        .iter()
+        .filter_map(|r| {
+            figure::crop_png(&rgb, r).map(|png| layout::Fig {
+                png,
+                x0: r.x0 as f32,
+                y0: r.y0 as f32,
+                x1: r.x1 as f32,
+                y1: r.y1 as f32,
+            })
+        })
+        .collect();
+    if !figs.is_empty() {
+        hooks.say(&tr!(K::LibFigures, i + 1, figs.len()));
+    }
+    figs
 }
 
 fn kb(p: &Path) -> u64 {

@@ -148,7 +148,8 @@ impl Book {
                     let cont = bi == 0 && self.tbl_continues(starts, page_no);
                     self.sheet_table(&rows, starts, page_no, cont);
                 }
-                Block::Text(_) => {}
+                // Excel 只导表格, 图形和正文一样跳过
+                Block::Text(_) | Block::Figure(_) => {}
             }
         }
         // 这里不清 st.grid/st.tbl: 续表判据只看"上一页 + 列位对得上", 表格
