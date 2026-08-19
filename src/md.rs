@@ -227,8 +227,11 @@ fn row(cells: &[String], nc: usize) -> String {
 }
 
 /// 表格里的一格: 竖线会把格子切开, 换行会把表截断
+///
+/// 不走 [`esc`]: 格子里的行首记号本来就不当块语法解, 而且 `\|` 再被转一次
+/// 会变成 `\\|` —— 反斜杠现出来, 竖线又把格子切开了
 fn cell(t: &str) -> String {
-    esc(t).replace('|', "\\|").replace('\n', "<br>")
+    t.trim().replace('|', "\\|").replace('\n', "<br>")
 }
 
 /// 只挡会把整段读歪的那几个行首记号
@@ -434,6 +437,13 @@ mod tests {
     fn blank_lines_do_not_pile_up() {
         assert_eq!(squeeze("a\n\n\n\nb"), "a\n\nb");
         assert_eq!(squeeze("a\n\nb"), "a\n\nb");
+    }
+
+    /// 以竖线开头的格子转义一次就够, 转两次会把反斜杠露出来
+    #[test]
+    fn a_cell_starting_with_a_pipe_is_escaped_once() {
+        assert_eq!(cell("|A"), "\\|A");
+        assert_eq!(cell("A|B"), "A\\|B");
     }
 
     /// 行首的 `#` 不挡住就把一整段变成标题
