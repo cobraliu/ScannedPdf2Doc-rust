@@ -303,23 +303,41 @@ DefaultOutTip
     ja "キューの各ファイルで個別に変えられます。指定がなければこれに従います"
     ko "대기열의 파일마다 따로 정할 수 있고, 정하지 않으면 이걸 따릅니다";
 
-FmtBoth
-    zh "两份都要"
-    ht "兩份都要"
-    en "Both"
-    es "Ambos"
-    de "Beide"
-    ja "両方"
-    ko "둘 다";
+FmtDocxTip
+    zh "Word 文档: 按原件重排, 标题、清单、表格、印章都在"
+    ht "Word 文件：按原件重排，標題、清單、表格、印章都在"
+    en "Word document: rebuilt layout with headings, lists, tables and stamps"
+    es "Documento Word: diseño reconstruido con títulos, listas, tablas y sellos"
+    de "Word-Dokument: neu aufgebautes Layout mit Überschriften, Listen, Tabellen und Stempeln"
+    ja "Word 文書: 見出し・箇条書き・表・印影まで版面を組み直す"
+    ko "Word 문서: 제목·목록·표·도장까지 레이아웃 재구성";
 
-FmtBothShort
-    zh "两份"
-    ht "兩份"
-    en "Both"
-    es "Ambos"
-    de "Beide"
-    ja "両方"
-    ko "둘 다";
+FmtXlsxTip
+    zh "Excel 工作簿: 只导表格, 一张表一个工作表"
+    ht "Excel 活頁簿：只匯出表格，一張表一個工作表"
+    en "Excel workbook: tables only, one sheet per table"
+    es "Libro de Excel: solo tablas, una hoja por tabla"
+    de "Excel-Arbeitsmappe: nur Tabellen, ein Blatt pro Tabelle"
+    ja "Excel ブック: 表だけを、1 表 1 シートで書き出す"
+    ko "Excel 통합 문서: 표만, 표 하나당 시트 하나";
+
+FmtMdTip
+    zh "Markdown: 纯文本, 留标题层级、清单和表格; 图片放同名文件夹"
+    ht "Markdown：純文字，保留標題層級、清單和表格；圖片放同名資料夾"
+    en "Markdown: plain text keeping heading levels, lists and tables; images in a sibling folder"
+    es "Markdown: texto plano con niveles de título, listas y tablas; imágenes en una carpeta adjunta"
+    de "Markdown: reiner Text mit Überschriftenebenen, Listen und Tabellen; Bilder im Nachbarordner"
+    ja "Markdown: 見出し階層・箇条書き・表を残した素のテキスト。画像は同名フォルダへ"
+    ko "Markdown: 제목 단계·목록·표를 유지한 일반 텍스트, 이미지는 같은 이름 폴더에";
+
+FmtPdfTip
+    zh "可搜索 PDF: 版面一个像素不动, 底下垫一层看不见的文字, 能搜能复制"
+    ht "可搜尋 PDF：版面一個像素不動，底下墊一層看不見的文字，能搜能複製"
+    en "Searchable PDF: the page image untouched, with an invisible text layer you can search and copy"
+    es "PDF con búsqueda: la imagen de la página intacta, con una capa de texto invisible para buscar y copiar"
+    de "Durchsuchbares PDF: das Seitenbild bleibt unverändert, darunter eine unsichtbare Textebene zum Suchen und Kopieren"
+    ja "検索可能 PDF: 版面はそのまま、下に見えない文字層を敷いて検索・コピーできるようにする"
+    ko "검색 가능 PDF: 페이지 이미지는 그대로 두고 보이지 않는 텍스트 층을 깔아 검색·복사 가능";
 
 FmtDefault
     zh "默认·{0}"
@@ -1257,6 +1275,24 @@ LibOutXlsx
     ja "  ✓ {0}  (表 {1} 個を書き出し, {2} KB)"
     ko "  ✓ {0}  (표 {1}개 내보냄, {2} KB)";
 
+LibOutMd
+    zh "  ✓ {0}  (含 {1} 张图, {2} KB)"
+    ht "  ✓ {0}  (含 {1} 張圖, {2} KB)"
+    en "  ✓ {0}  ({1} images, {2} KB)"
+    es "  ✓ {0}  ({1} imágenes, {2} KB)"
+    de "  ✓ {0}  ({1} Bilder, {2} KB)"
+    ja "  ✓ {0}  (画像 {1} 点, {2} KB)"
+    ko "  ✓ {0}  (이미지 {1}개, {2} KB)";
+
+LibOutPdf
+    zh "  ✓ {0}  (可搜索 PDF, 共 {1} 页, {2} KB)"
+    ht "  ✓ {0}  (可搜尋 PDF, 共 {1} 頁, {2} KB)"
+    en "  ✓ {0}  (searchable PDF, {1} pages, {2} KB)"
+    es "  ✓ {0}  (PDF con búsqueda, {1} páginas, {2} KB)"
+    de "  ✓ {0}  (durchsuchbares PDF, {1} Seiten, {2} KB)"
+    ja "  ✓ {0}  (検索可能 PDF, {1} ページ, {2} KB)"
+    ko "  ✓ {0}  (검색 가능 PDF, {1}쪽, {2} KB)";
+
 LibFileErrors
     zh "  ! 本文件有 {0} 处失败(已跳过)"
     ht "  ! 本檔案有 {0} 處失敗(已略過)"
@@ -1449,13 +1485,13 @@ HelpPdfs
     ko "변환할 스캔 PDF";
 
 HelpTo
-    zh "输出格式: docx(默认, 保版式) / xlsx(只导表格) / both"
-    ht "輸出格式：docx(預設，保版面) / xlsx(只匯出表格) / both"
-    en "output: docx (default, keeps layout) / xlsx (tables only) / both"
-    es "salida: docx (predet., conserva el diseño) / xlsx (solo tablas) / both"
-    de "Ausgabe: docx (Standard, behält Layout) / xlsx (nur Tabellen) / both"
-    ja "出力形式: docx(既定、版面を保つ) / xlsx(表のみ) / both"
-    ko "출력 형식: docx(기본, 레이아웃 유지) / xlsx(표만) / both";
+    zh "输出格式, 可逗号并列: docx(默认, 保版式) / xlsx(只导表格) / md / pdf(可搜索) / all"
+    ht "輸出格式，可用逗號並列：docx(預設，保版面) / xlsx(只匯出表格) / md / pdf(可搜尋) / all"
+    en "output, comma-separated: docx (default, keeps layout) / xlsx (tables only) / md / pdf (searchable) / all"
+    es "salida, separada por comas: docx (predet., conserva el diseño) / xlsx (solo tablas) / md / pdf (con búsqueda) / all"
+    de "Ausgabe, kommagetrennt: docx (Standard, behält Layout) / xlsx (nur Tabellen) / md / pdf (durchsuchbar) / all"
+    ja "出力形式(カンマ区切り可): docx(既定、版面を保つ) / xlsx(表のみ) / md / pdf(検索可能) / all"
+    ko "출력 형식(쉼표로 나열 가능): docx(기본, 레이아웃 유지) / xlsx(표만) / md / pdf(검색 가능) / all";
 
 HelpOut
     zh "输出目录, 默认与源文件同目录"

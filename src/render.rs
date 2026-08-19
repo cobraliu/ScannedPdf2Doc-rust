@@ -25,6 +25,14 @@ pub struct State {
     ind: Vec<(f32, usize)>,
 }
 
+impl State {
+    /// 攒了一趟的缩进档位 —— Markdown 那边要拿同一把尺子量, 不然同一页
+    /// 在两种输出里的层级对不上
+    pub fn indents(&self) -> &[(f32, usize)] {
+        &self.ind
+    }
+}
+
 struct TblState {
     id: usize,
     starts: Vec<f32>,
@@ -353,7 +361,7 @@ fn merge_indents(lv: &mut Vec<(f32, usize)>, page: &Page, cfg: &Config) {
 /// 0.0867, 第五页起的附件在 0.0618, 零点取 0.0618, 前四页就整篇缩了一格。
 /// 这是全文一个零点的代价 —— 换成一页一个零点, 页内的相对关系是对了, 页与
 /// 页之间又对不上(见 [`scan_indents`]), 那个错得更难看。
-fn indent_base(lv: &[(f32, usize)]) -> f32 {
+pub fn indent_base(lv: &[(f32, usize)]) -> f32 {
     lv.iter()
         .find(|(_, n)| *n >= IND_MIN_HITS)
         .or_else(|| lv.first())
@@ -367,7 +375,7 @@ fn indent_raw(cx0: f32, base: f32, cfg: &Config) -> i32 {
 }
 
 /// 缩几级, 封到 ind_max
-fn indent_of(cx0: f32, base: f32, cfg: &Config) -> u8 {
+pub fn indent_of(cx0: f32, base: f32, cfg: &Config) -> u8 {
     indent_raw(cx0, base, cfg).clamp(0, cfg.ind_max as i32) as u8
 }
 

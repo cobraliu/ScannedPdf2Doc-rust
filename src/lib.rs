@@ -18,9 +18,11 @@ pub mod geom;
 pub mod i18n;
 pub mod imgutil;
 pub mod layout;
+pub mod md;
 pub mod ocr;
 pub mod ocrlang;
 pub mod pdf;
+pub mod pdfout;
 pub mod render;
 pub mod shade;
 pub mod textlayer;
@@ -167,7 +169,7 @@ impl Converter {
         hooks.say(&tr!(K::LibStart, name, total));
 
         let landscape = pages.mostly_landscape();
-        let mut doc = fmt.wants_docx().then(|| {
+        let mut doc = fmt.docx.then(|| {
             let mut d = docx::Docx::new(cfg, landscape);
             d.para(
                 &name,
@@ -178,7 +180,19 @@ impl Converter {
             );
             d
         });
-        let mut book = fmt.wants_xlsx().then(|| xlsx::Book::new(&name));
+        let mut book = fmt.xlsx.then(|| xlsx::Book::new(&name));
+        let mut note = fmt.md.then(|| md::Book::new(&name));
+        // 可搜索 PDF 是边识别边写的: 它要的是页图和字框, 第一趟就齐了, 攒到
+        // 第二趟只是白占几十 MB 内存。名字挂个 -ocr, 免得跟原件同名
+        let mut spdf = match fmt.pdf {
+            true => Some(pdfout::Builder::new(&vacant(
+                &dir,
+                &format!("{name}-ocr"),
+                "pdf",
+                hooks,
+            ))?),
+            false => None,
+        };
         let mut st = render::State::default();
         let mut errors: Vec<PageError> = Vec::new();
 
@@ -193,7 +207,7 @@ impl Converter {
             hooks.check()?;
             let no = i + 1;
             hooks.tick(Stage::Ocr, no, total, &tr!(K::LibStageOcr, no, total));
-            match one_page(&pages, engine, &cache, i, cfg, hooks) {
+            match one_page(&pages, engine, &cache, i, cfg, hooks, spdf.as_mut()) {
                 Ok(page) => {
                     render::scan_indents(&mut st, &page, cfg);
                     // xlsx 不吃缩进, 顺手就写了
@@ -218,19 +232,33 @@ impl Converter {
             }
         }
 
-        // 第二趟: 零点定下来了, 再排版
-        if let Some(d) = doc.as_mut() {
-            for (i, r) in laid.iter().enumerate() {
-                hooks.check()?;
-                let no = i + 1;
-                match r {
-                    Ok(page) => {
+        // 第二趟: 零点定下来了, 再排版。缩进的零点两种输出共用一把尺子,
+        // 所以 md 也在这一趟, 而不是各扫一遍
+        for (i, r) in laid.iter().enumerate() {
+            hooks.check()?;
+            let no = i + 1;
+            match r {
+                Ok(page) => {
+                    if let Some(d) = doc.as_mut() {
                         if cfg.page_marker {
                             render::page_marker(d, page, no, &mut st);
                         }
                         render::render_page(d, page, no, cfg, &mut st);
                     }
-                    Err(msg) => render::page_failed(d, no, msg, &mut st),
+                    if let Some(m) = note.as_mut() {
+                        if cfg.page_marker {
+                            m.page_marker(page, no);
+                        }
+                        m.add_page(page, no, cfg, &st);
+                    }
+                }
+                Err(msg) => {
+                    if let Some(d) = doc.as_mut() {
+                        render::page_failed(d, no, msg, &mut st);
+                    }
+                    if let Some(m) = note.as_mut() {
+                        m.page_failed(no, msg);
+                    }
                 }
             }
         }
@@ -248,6 +276,18 @@ impl Converter {
             let out = vacant(&dir, &name, "xlsx", hooks);
             let n = b.save(&out)?;
             hooks.say(&tr!(K::LibOutXlsx, out.display(), n, kb(&out)));
+            outputs.push(out);
+        }
+        if let Some(m) = note {
+            let out = vacant(&dir, &name, "md", hooks);
+            let n = m.save(&out)?;
+            hooks.say(&tr!(K::LibOutMd, out.display(), n, kb(&out)));
+            outputs.push(out);
+        }
+        if let Some(b) = spdf {
+            let (out, n) = (b.path().to_path_buf(), b.pages());
+            b.finish()?;
+            hooks.say(&tr!(K::LibOutPdf, out.display(), n, kb(&out)));
             outputs.push(out);
         }
         if !errors.is_empty() {
@@ -281,14 +321,37 @@ fn one_page(
     i: usize,
     cfg: &Config,
     hooks: &Hooks,
+    spdf: Option<&mut pdfout::Builder>,
 ) -> Result<layout::Page> {
     let mut img = pages
         .render(i)
         .with_context(|| tr!(K::LibRenderPage, i + 1))?;
-    let (items, skew) = read_page(pages, engine, cache, &mut img, i, cfg, hooks)?;
+    let read = read_page(pages, engine, cache, &mut img, i, cfg, hooks);
+    let skew = read.as_ref().map(|(_, s)| *s).unwrap_or(0.0);
+    // 彩色页图: 可搜索 PDF 整页贴它, 裁印章也裁它 —— 一页只渲一次。
+    // 只在真要出 PDF 时提前渲: 裁印章那条路上大多数页根本没东西可裁,
+    // 让它照旧按需去渲, 平常一页不多花
+    let rgb = spdf
+        .is_some()
+        .then(|| upright_rgb(pages, i, skew))
+        .flatten();
+    // 这一页哪怕识别砸了, 页图照样贴进可搜索 PDF —— 归档件缺页比缺文字层
+    // 严重得多, 少一层文字只是这页搜不到
+    if let Some(b) = spdf {
+        let k = pages.px_per_pt(i)?.max(1e-3);
+        let pt = (img.w as f32 / k, img.h as f32 / k);
+        let none = Vec::new();
+        let items = read.as_ref().map(|(it, _)| it).unwrap_or(&none);
+        let im = match rgb.as_ref() {
+            Some(r) => pdfout::PageImg::Rgb(r),
+            None => pdfout::PageImg::Gray(&img),
+        };
+        b.add_page(im, items, pt)?;
+    }
+    let (items, skew) = read?;
     // 版面先分析出来, 图形检测要拿表格和页眉页脚当排除区
     let mut page = layout::analyze(&items, &img, cfg);
-    let figs = keep_figures(pages, &img, &items, &page, i, skew, cfg, hooks);
+    let figs = keep_figures(pages, rgb, &img, &items, &page, i, skew, cfg, hooks);
     page.insert_figs(figs);
     let tbls = page
         .blocks
@@ -366,15 +429,27 @@ fn read_page(
     Ok((v, skew))
 }
 
+/// 这一页的彩色图, 按识别时量到的角度转正 —— 跟灰度那张逐像素对得上
+///
+/// 角度用存下来的那个, 不在彩色图上重新量: 两次测量未必分毫不差, 差一点
+/// 两张图就对不上了
+fn upright_rgb(pages: &pdf::Pages, i: usize, skew: f32) -> Option<imgutil::Rgb> {
+    let rgb = pages.render_rgb(i).ok()?;
+    Some(if skew != 0.0 {
+        deskew::apply_rgb(&rgb, -skew)
+    } else {
+        rgb
+    })
+}
+
 /// 印章 / 签名 / 插图: 找出来, 再从彩色页图上照原样裁下来
 ///
-/// 裁的是彩色那张 —— 红章灰了就不成其为章。彩色页只在真有东西要裁时才渲,
-/// 平常一页也不多花。裁之前要按同一个角度转一遍: 灰度图早被摆正了, 不转的
-/// 话裁下来的位置对不上。角度是转正时量到的那个, 不重新量, 免得两张图各转
-/// 各的。
+/// 裁的是彩色那张 —— 红章灰了就不成其为章。`rgb` 是出可搜索 PDF 时顺手
+/// 渲好的那张, 有就直接用; 没有就自己渲一张, 平常一页也不多花。
 #[allow(clippy::too_many_arguments)]
 fn keep_figures(
     pages: &pdf::Pages,
+    rgb: Option<imgutil::Rgb>,
     img: &imgutil::Gray,
     items: &[ocr::Item],
     page: &layout::Page,
@@ -388,13 +463,8 @@ fn keep_figures(
         return Vec::new();
     }
     // 渲不出彩色页不算错: 少几张图总比整页转不出来强
-    let Ok(rgb) = pages.render_rgb(i) else {
+    let Some(rgb) = rgb.or_else(|| upright_rgb(pages, i, skew)) else {
         return Vec::new();
-    };
-    let rgb = if skew != 0.0 {
-        deskew::apply_rgb(&rgb, -skew)
-    } else {
-        rgb
     };
     let figs: Vec<layout::Fig> = rects
         .iter()

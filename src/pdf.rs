@@ -112,6 +112,16 @@ impl Pages<'_> {
         dpi / 72.0
     }
 
+    /// 页图像素 ÷ 点, 对外的那份
+    ///
+    /// 出可搜索 PDF 时要把页图贴回一张同样大小的纸上。直接读 page.width()
+    /// 不保险: 带 /Rotate 的页面渲出来是转过的, 宽高对调。拿这个比例去除
+    /// 图的实际宽高, 无论转没转都对得上。
+    pub fn px_per_pt(&self, i: usize) -> Result<f32> {
+        let page = self.doc.pages().get(i as PdfPageIndex)?;
+        Ok(self.scale(&page))
+    }
+
     /// 渲染参数 —— 渲染和文本层换算必须共用同一份, 否则字框跟页图对不上
     fn render_cfg(&self, page: &PdfPage) -> PdfRenderConfig {
         PdfRenderConfig::new().scale_page_by_factor(self.scale(page))

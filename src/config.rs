@@ -126,30 +126,173 @@ impl Default for Config {
     }
 }
 
-/// 输出格式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Format {
-    Docx,
-    Xlsx,
-    /// 同一次识别出两份
-    Both,
+/// 要出哪几份
+///
+/// 原来是三选一的枚举(Word / Excel / 两份都要)。加了 Markdown 和可搜索 PDF
+/// 之后"两份都要"这说法就不够用了 —— 一次识别的结果落成几种文件本来就是
+/// 互不相干的事, 改成一组开关。
+///
+/// 旧配置里存的是 `"Docx"` / `"Xlsx"` / `"Both"` 这样的字符串, 反序列化时
+/// 照旧认: 升一次级把用户存了半年的设置打回默认, 是不该发生的事。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Format {
+    pub docx: bool,
+    pub xlsx: bool,
+    /// 纯文本的结构版: 标题分级、清单、表格都在, 版式细节不留
+    pub md: bool,
+    /// 可搜索 PDF: 版面一个像素不动, 底下垫一层看不见的文字
+    pub pdf: bool,
 }
 
 impl Format {
+    pub const NONE: Self = Self {
+        docx: false,
+        xlsx: false,
+        md: false,
+        pdf: false,
+    };
+    pub const DOCX: Self = Self {
+        docx: true,
+        ..Self::NONE
+    };
+
+    /// 认逗号(或加号、空格)分隔的一串: `docx,pdf`
+    ///
+    /// 有一个词不认识就整个不认 —— 命令行上打错一个字母, 默默少出一份文件
+    /// 比直接报错难发现得多。
     pub fn parse(s: &str) -> Option<Self> {
-        match s.to_ascii_lowercase().as_str() {
-            "docx" | "word" => Some(Format::Docx),
-            "xlsx" | "excel" => Some(Format::Xlsx),
-            "both" | "all" => Some(Format::Both),
-            _ => None,
+        let mut f = Self::NONE;
+        let mut n = 0;
+        for w in s.split([',', '+', ' ', '/']).filter(|w| !w.is_empty()) {
+            n += 1;
+            match w.to_ascii_lowercase().as_str() {
+                "docx" | "word" => f.docx = true,
+                "xlsx" | "excel" => f.xlsx = true,
+                "md" | "markdown" => f.md = true,
+                "pdf" => f.pdf = true,
+                // 老写法: 那会儿只有两种输出
+                "both" => {
+                    f.docx = true;
+                    f.xlsx = true;
+                }
+                "all" => {
+                    f = Self {
+                        docx: true,
+                        xlsx: true,
+                        md: true,
+                        pdf: true,
+                    }
+                }
+                _ => return None,
+            }
         }
+        (n > 0 && f != Self::NONE).then_some(f)
     }
 
-    pub fn wants_docx(self) -> bool {
-        matches!(self, Format::Docx | Format::Both)
+    /// 一样都不选等于什么都不用干
+    pub fn is_none(self) -> bool {
+        self == Self::NONE
+    }
+}
+
+impl Default for Format {
+    fn default() -> Self {
+        Self::DOCX
+    }
+}
+
+impl<'de> Deserialize<'de> for Format {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            /// v0.1.6 及以前: 一个枚举名
+            Old(String),
+            New {
+                #[serde(default)]
+                docx: bool,
+                #[serde(default)]
+                xlsx: bool,
+                #[serde(default)]
+                md: bool,
+                #[serde(default)]
+                pdf: bool,
+            },
+        }
+        Ok(match Repr::deserialize(d)? {
+            Repr::Old(s) => Format::parse(&s).unwrap_or_default(),
+            Repr::New {
+                docx,
+                xlsx,
+                md,
+                pdf,
+            } => Format {
+                docx,
+                xlsx,
+                md,
+                pdf,
+            },
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_command_line_spellings() {
+        assert_eq!(Format::parse("docx"), Some(Format::DOCX));
+        assert_eq!(Format::parse("word"), Some(Format::DOCX));
+        assert_eq!(
+            Format::parse("docx,pdf"),
+            Some(Format {
+                docx: true,
+                pdf: true,
+                ..Format::NONE
+            })
+        );
+        assert_eq!(Format::parse("md+xlsx"), Format::parse("xlsx, markdown"));
+        assert_eq!(
+            Format::parse("all"),
+            Some(Format {
+                docx: true,
+                xlsx: true,
+                md: true,
+                pdf: true
+            })
+        );
+        // 打错字要报出来, 不能悄悄少出一份
+        assert_eq!(Format::parse("docs"), None);
+        assert_eq!(Format::parse(""), None);
     }
 
-    pub fn wants_xlsx(self) -> bool {
-        matches!(self, Format::Xlsx | Format::Both)
+    /// 老设置文件里存的是枚举名, 升级不该把用户的设置清空
+    #[test]
+    fn still_reads_settings_written_by_the_old_version() {
+        let old: Format = serde_json::from_str("\"Both\"").expect("旧写法");
+        assert!(old.docx && old.xlsx && !old.md && !old.pdf);
+        let old: Format = serde_json::from_str("\"Xlsx\"").expect("旧写法");
+        assert_eq!(
+            old,
+            Format {
+                xlsx: true,
+                ..Format::NONE
+            }
+        );
+        // 认不出来的字符串退回默认, 不是报错 —— 手改坏了一行不该起不来
+        let bad: Format = serde_json::from_str("\"Whatever\"").expect("认不出的旧写法");
+        assert_eq!(bad, Format::DOCX);
+    }
+
+    #[test]
+    fn round_trips_through_json() {
+        let f = Format {
+            docx: true,
+            md: true,
+            ..Format::NONE
+        };
+        let s = serde_json::to_string(&f).expect("写");
+        assert_eq!(serde_json::from_str::<Format>(&s).expect("读"), f);
     }
 }

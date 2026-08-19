@@ -251,7 +251,7 @@ impl App {
         Self {
             jobs: Vec::new(),
             cfg: Config::default(),
-            fmt: Format::Docx,
+            fmt: Format::DOCX,
             out_dir: None,
             log: Vec::new(),
             rx: None,
@@ -725,7 +725,9 @@ impl eframe::App for App {
             enlarge(ui);
             let c = pal(ui);
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            // 折行的横排: 这一行东西不少, 窗口拖窄或换成德文那种长词时,
+            // 宁可掉到第二行, 也别把「开始转换」挤没了
+            ui.horizontal_wrapped(|ui| {
                 if ui
                     .add_enabled(!self.running, egui::Button::new(i18n::t(K::AddPdf)))
                     .clicked()
@@ -761,9 +763,9 @@ impl eframe::App for App {
                 ui.separator();
                 ui.label(i18n::t(K::DefaultOut))
                     .on_hover_text(i18n::t(K::DefaultOutTip));
-                ui.selectable_value(&mut self.fmt, Format::Docx, "Word");
-                ui.selectable_value(&mut self.fmt, Format::Xlsx, "Excel");
-                ui.selectable_value(&mut self.fmt, Format::Both, i18n::t(K::FmtBoth));
+                for (_, short, pick, tip) in PARTS {
+                    fmt_toggle(ui, &mut self.fmt, pick, short, tip);
+                }
                 ui.separator();
                 if ui
                     .button(if self.out_dir.is_some() {
@@ -1189,11 +1191,40 @@ fn enlarge(ui: &mut egui::Ui) {
     st.spacing.icon_spacing = 6.0;
 }
 
-fn fmt_name(f: Format) -> &'static str {
-    match f {
-        Format::Docx => "Word",
-        Format::Xlsx => "Excel",
-        Format::Both => i18n::t(K::FmtBothShort),
+/// 四种输出。全名给弹出的勾选列表(那儿地方宽裕), 简称给顶栏和队列里那一格
+/// (顶栏本来就挤, 队列那格只有 88 px)。两处都挂着解释用的悬浮说明
+type Pick = fn(&mut Format) -> &mut bool;
+const PARTS: [(&str, &str, Pick, K); 4] = [
+    ("Word", "Word", |f| &mut f.docx, K::FmtDocxTip),
+    ("Excel", "Excel", |f| &mut f.xlsx, K::FmtXlsxTip),
+    ("Markdown", "MD", |f| &mut f.md, K::FmtMdTip),
+    ("PDF", "PDF", |f| &mut f.pdf, K::FmtPdfTip),
+];
+
+fn fmt_name(f: Format) -> String {
+    let mut f = f;
+    let v: Vec<&str> = PARTS
+        .iter()
+        .filter(|(_, _, pick, _)| *pick(&mut f))
+        .map(|(_, short, _, _)| *short)
+        .collect();
+    v.join("+")
+}
+
+/// 一个格式开关。最后一个不让关 —— 一样都不选等于按下"开始"什么也不出,
+/// 那不是一种有意义的设置, 是个陷阱
+fn fmt_toggle(ui: &mut egui::Ui, f: &mut Format, pick: Pick, label: &str, tip: K) {
+    let mut on = *pick(f);
+    if ui
+        .toggle_value(&mut on, label)
+        .on_hover_text(i18n::t(tip))
+        .changed()
+    {
+        let was = *f;
+        *pick(f) = on;
+        if f.is_none() {
+            *f = was;
+        }
     }
 }
 
@@ -1204,15 +1235,34 @@ fn fmt_name(f: Format) -> &'static str {
 fn fmt_picker(ui: &mut egui::Ui, id: usize, fmt: &mut Option<Format>, default: Format) {
     let shown = match fmt {
         None => tr!(K::FmtDefault, fmt_name(default)),
-        Some(f) => fmt_name(*f).to_string(),
+        Some(f) => fmt_name(*f),
     };
     egui::ComboBox::from_id_salt(("fmt", id))
         .width(88.0)
         .selected_text(egui::RichText::new(shown).size(11.0))
         .show_ui(ui, |ui| {
             ui.selectable_value(fmt, None, tr!(K::FmtDefault, fmt_name(default)));
-            for f in [Format::Docx, Format::Xlsx, Format::Both] {
-                ui.selectable_value(fmt, Some(f), fmt_name(f));
+            ui.separator();
+            // 单独指定就是从当前这套改起, 不是从空白重挑
+            let mut cur = fmt.unwrap_or(default);
+            let mut touched = false;
+            for (label, _, pick, tip) in PARTS {
+                let mut on = *pick(&mut cur);
+                if ui
+                    .checkbox(&mut on, label)
+                    .on_hover_text(i18n::t(tip))
+                    .changed()
+                {
+                    let was = cur;
+                    *pick(&mut cur) = on;
+                    if cur.is_none() {
+                        cur = was;
+                    }
+                    touched = true;
+                }
+            }
+            if touched {
+                *fmt = Some(cur);
             }
         });
 }
