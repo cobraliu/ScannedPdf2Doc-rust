@@ -512,6 +512,24 @@ LongEdgeTip
     ja "実際の dpi はページ寸法から逆算し 150〜300 に収めます。小さくすると速い代わりに小さな文字が落ちます"
     ko "실제 dpi는 페이지 크기에서 역산해 150~300 사이로 맞춥니다. 낮추면 빠르지만 작은 글자를 놓칩니다";
 
+TextLayer
+    zh "有文字层就直接用"
+    ht "有文字層就直接用"
+    en "Use the PDF's text layer"
+    es "Usar la capa de texto del PDF"
+    de "Textebene des PDFs verwenden"
+    ja "PDF の文字レイヤーを使う"
+    ko "PDF 텍스트 레이어 사용";
+
+TextLayerTip
+    zh "原生 PDF(Word/Excel 直接导出的)自带文字, 直接取比识别又快又准。\n\n扫描件没有文字层, 这个开关对它没影响; 只有当扫描件被别的工具塞过一层不准的文字时, 才需要关掉重认。"
+    ht "原生 PDF(Word/Excel 直接匯出的)自帶文字，直接取比辨識又快又準。\n\n掃描件沒有文字層，這個開關對它沒影響；只有當掃描件被別的工具塞過一層不準的文字時，才需要關掉重認。"
+    en "PDFs exported straight from Word or Excel carry their own text — taking it is both faster and more accurate than recognising it.\n\nScans have no text layer, so this switch does nothing for them; turn it off only when a scan carries an inaccurate text layer added by some other tool."
+    es "Los PDF exportados directamente desde Word o Excel llevan su propio texto: tomarlo es más rápido y más exacto que reconocerlo.\n\nLos escaneos no tienen capa de texto, así que esta opción no les afecta; desactívala solo si un escaneo trae una capa de texto inexacta añadida por otra herramienta."
+    de "Direkt aus Word oder Excel exportierte PDFs bringen ihren Text mit — ihn zu übernehmen ist schneller und genauer als ihn zu erkennen.\n\nScans haben keine Textebene, für sie ändert dieser Schalter nichts; abschalten nur, wenn ein Scan eine fehlerhafte, von einem anderen Werkzeug hinzugefügte Textebene mitbringt."
+    ja "Word や Excel からそのまま書き出した PDF は文字を持っているので、認識するより速く正確です。\n\nスキャンには文字レイヤーがないためこの切り替えは効きません。他のツールが不正確な文字レイヤーを付けたスキャンのときだけ切ってください。"
+    ko "Word나 Excel에서 그대로 내보낸 PDF는 문자를 가지고 있어, 인식하는 것보다 빠르고 정확합니다.\n\n스캔본에는 텍스트 레이어가 없어 이 설정이 영향을 주지 않습니다. 다른 도구가 부정확한 텍스트 레이어를 넣은 스캔본일 때만 꺼 주세요.";
+
 GridTables
     zh "按框线还原表格"
     ht "依框線還原表格"
@@ -1095,6 +1113,15 @@ LibPage
     ja "  {0} ページ: 文字 {1} 行、ブロック {2} 個(罫線なしの表 {3}、罫線ありの表 {4})、ヘッダー・フッター {5} 行"
     ko "  {0}쪽: 글자 {1}줄, 블록 {2}개(선 없는 표 {3}, 선 있는 표 {4}), 머리글·바닥글 {5}줄";
 
+LibTextLayer
+    zh "  第 {0} 页: PDF 自带文字层, 直接取字, 不识别"
+    ht "  第 {0} 頁：PDF 自帶文字層，直接取字，不辨識"
+    en "  page {0}: has its own text layer, taking the text as-is instead of recognising it"
+    es "  página {0}: tiene capa de texto propia; se toma el texto tal cual en vez de reconocerlo"
+    de "  Seite {0}: hat eine eigene Textebene; der Text wird direkt übernommen statt erkannt"
+    ja "  {0} ページ: PDF 自体の文字レイヤーがあるので、認識せずそのまま取り出します"
+    ko "  {0}쪽: PDF 자체 텍스트 레이어가 있어 인식하지 않고 그대로 가져옵니다";
+
 LibPageFailed
     zh "  ! 第 {0} 页失败, 已跳过: {1}"
     ht "  ! 第 {0} 頁失敗，已略過：{1}"
@@ -1366,6 +1393,15 @@ HelpNoMarker
     de "keine Marken „Seite N des Originals“ einfügen"
     ja "「原文 N ページ」の目印を入れない"
     ko "「원본 N쪽」 표시를 넣지 않음";
+
+HelpNoTextLayer
+    zh "不用 PDF 自带的文字层, 一律识别(扫描件被塞过不准的文字层时用)"
+    ht "不用 PDF 自帶的文字層，一律辨識(掃描件被塞過不準的文字層時用)"
+    en "Ignore the PDF's own text layer and recognise everything (for scans carrying a bad text layer)"
+    es "Ignorar la capa de texto del PDF y reconocerlo todo (para escaneos con una capa de texto defectuosa)"
+    de "Die eigene Textebene des PDFs ignorieren und alles erkennen (für Scans mit fehlerhafter Textebene)"
+    ja "PDF 自体の文字レイヤーを使わず、すべて認識する(不正確な文字レイヤーが入ったスキャン用)"
+    ko "PDF 자체 텍스트 레이어를 쓰지 않고 모두 인식합니다(부정확한 텍스트 레이어가 든 스캔본용)";
 
 HelpModels
     zh "OCR 模型目录, 默认自动查找"

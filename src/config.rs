@@ -10,6 +10,12 @@ pub struct Config {
     /// 这样 A3 图纸和 A5 单据出来的字号一样大, 阈值才通用
     pub long_edge: u32,
 
+    /// 原生 PDF 直接取自带的文字层, 不走识别
+    ///
+    /// 关掉它的唯一理由: 手上这份是扫描件, 却被别的工具塞过一层不准的 OCR
+    /// 文字层 —— 那层分不出好坏, 宁可自己重认一遍
+    pub text_layer: bool,
+
     // ---- 噪声过滤 ----
     /// 剔除印章/签名一类的短串低置信噪声
     pub drop_stamp: bool,
@@ -77,6 +83,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             long_edge: 2560,
+            text_layer: true,
 
             drop_stamp: true,
             stamp_conf: 0.88,

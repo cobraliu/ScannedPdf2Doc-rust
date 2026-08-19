@@ -20,6 +20,7 @@ pub mod ocr;
 pub mod ocrlang;
 pub mod pdf;
 pub mod render;
+pub mod textlayer;
 pub mod xlsx;
 
 use anyhow::{anyhow, Context, Result};
@@ -276,16 +277,7 @@ fn one_page(
     let img = pages
         .render(i)
         .with_context(|| tr!(K::LibRenderPage, i + 1))?;
-    let items = match cache.load(i) {
-        Some(v) => v,
-        None => {
-            let v = engine
-                .run(&img)
-                .with_context(|| tr!(K::LibOcrPageCtx, i + 1))?;
-            cache.save(i, &v);
-            v
-        }
-    };
+    let items = read_page(pages, engine, cache, &img, i, cfg, hooks)?;
     let page = layout::analyze(&items, &img, cfg);
     let tbls = page
         .blocks
@@ -306,6 +298,44 @@ fn one_page(
         page.header.len() + page.footer.len(),
     ));
     Ok(page)
+}
+
+/// 这一页的字从哪儿来: 有文字层就直接取, 没有才识别
+///
+/// 页图照渲不误 —— 框线是画出来的图形, 文字层里没有, 表格还得在图上找。
+/// 省掉的是 OCR 那一段, 也就是九成时间。
+#[allow(clippy::too_many_arguments)]
+fn read_page(
+    pages: &pdf::Pages,
+    engine: &mut ocr::Engine,
+    cache: &Cache,
+    img: &imgutil::Gray,
+    i: usize,
+    cfg: &Config,
+    hooks: &Hooks,
+) -> Result<Vec<ocr::Item>> {
+    if cfg.text_layer {
+        // 取不到文字层不是错: 加密的、结构坏掉的 PDF 都可能在这儿失败,
+        // 而它们照样能渲染出图来识别
+        let chars = pages.chars(i).unwrap_or_default();
+        if textlayer::usable(&chars) {
+            hooks.say(&tr!(K::LibTextLayer, i + 1));
+            // 拿不到框线不影响出字, 只是相邻两格挨得太紧时分不开, 所以失败
+            // 了就当没有线接着走
+            let rules = pages.vrules(i).unwrap_or_default();
+            return Ok(textlayer::items(&chars, &rules));
+        }
+    }
+    // 缓存只存识别结果: 识别占九成时间, 渲染反而很快。文字层这条路本来就快,
+    // 不值得再存一份, 存了反而会在开关切换时读到另一条路的结果
+    if let Some(v) = cache.load(i) {
+        return Ok(v);
+    }
+    let v = engine
+        .run(img)
+        .with_context(|| tr!(K::LibOcrPageCtx, i + 1))?;
+    cache.save(i, &v);
+    Ok(v)
 }
 
 fn kb(p: &Path) -> u64 {
