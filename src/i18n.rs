@@ -512,6 +512,33 @@ LongEdgeTip
     ja "実際の dpi はページ寸法から逆算し 150〜300 に収めます。小さくすると速い代わりに小さな文字が落ちます"
     ko "실제 dpi는 페이지 크기에서 역산해 150~300 사이로 맞춥니다. 낮추면 빠르지만 작은 글자를 놓칩니다";
 
+HelpNoFlatten
+    zh "不要摊平不匀的光照"
+    ht "不要攤平不勻的光照"
+    en "Do not even out uneven lighting"
+    es "No igualar la iluminación desigual"
+    de "Ungleichmäßige Beleuchtung nicht ausgleichen"
+    ja "むらのある明るさを平らにしない"
+    ko "고르지 않은 밝기를 평탄화하지 않습니다";
+
+Flatten
+    zh "把明暗不匀摊平"
+    ht "把明暗不勻攤平"
+    en "Even out uneven lighting"
+    es "Igualar la iluminación desigual"
+    de "Ungleichmäßige Beleuchtung ausgleichen"
+    ja "明るさのむらを平らに"
+    ko "고르지 않은 밝기 평탄화";
+
+FlattenTip
+    zh "手机拍的纸多半一边亮一边暗。暗的那侧白纸自己就掉到了「算墨迹」的阈值以下, 找框线的一上来就被喂了一大片黑, 表格全乱。\n\n做法是按格子估出「这块地方的纸有多白」, 再照它把每个像素归一化。整格被印章盖死时靠旁边的纸补回来, 印章不会被除成白板。\n\n扫描仪出来的页面本来就是平的, 量到平就原样放过, 不花这个时间。"
+    ht "手機拍的紙多半一邊亮一邊暗。暗的那側白紙自己就掉到了「算墨跡」的閾值以下，找框線的一上來就被餵了一大片黑，表格全亂。\n\n做法是按格子估出「這塊地方的紙有多白」，再照它把每個像素歸一化。整格被印章蓋死時靠旁邊的紙補回來，印章不會被除成白板。\n\n掃描儀出來的頁面本來就是平的，量到平就原樣放過，不花這個時間。"
+    en "A page photographed with a phone is usually brighter on one side. On the dark side the blank paper itself falls below the \"this is ink\" threshold, so rule detection is handed a large black slab and the table falls apart.\n\nThe fix estimates how white the paper is in each patch of the page and normalises every pixel against that. Where a stamp covers a whole patch, the surrounding paper fills it back in, so the stamp is not bleached away.\n\nPages from a scanner are already even; when the page measures flat it is passed through untouched and costs nothing."
+    es "Una página fotografiada con el móvil suele quedar más clara de un lado. En el lado oscuro el papel en blanco cae por debajo del umbral de «esto es tinta», así que la detección de líneas recibe un gran bloque negro y la tabla se deshace.\n\nLa corrección estima lo blanco que es el papel en cada zona de la página y normaliza cada píxel según eso. Donde un sello cubre una zona entera, el papel de alrededor la rellena, así que el sello no se blanquea.\n\nLas páginas de un escáner ya son uniformes; si la página se mide plana, pasa intacta y no cuesta nada."
+    de "Eine mit dem Handy fotografierte Seite ist meist auf einer Seite heller. Auf der dunklen Seite rutscht schon das leere Papier unter die Schwelle „das ist Tinte“, die Linienerkennung bekommt einen großen schwarzen Block vorgesetzt und die Tabelle zerfällt.\n\nDie Korrektur schätzt feldweise, wie weiß das Papier dort ist, und normiert jedes Pixel darauf. Wo ein Stempel ein ganzes Feld bedeckt, füllt das umliegende Papier es wieder auf, der Stempel wird also nicht weggebleicht.\n\nSeiten aus dem Scanner sind ohnehin gleichmäßig; misst sich die Seite als flach, geht sie unverändert durch und kostet nichts."
+    ja "スマートフォンで撮った紙は片側だけ明るいのが普通です。暗い側では白紙そのものが「これはインク」のしきい値を下回り、罫線検出はいきなり大きな黒い塊を渡されて表が崩れます。\n\nページを升目に分けて「ここの紙はどれくらい白いか」を見積もり、それに合わせて各画素を正規化します。升目が印章で埋まっている場合は周りの紙から補うので、印章が白く飛ぶことはありません。\n\nスキャナーのページはもともと均一で、平らだと測れたらそのまま通すので時間はかかりません。"
+    ko "휴대폰으로 찍은 종이는 대개 한쪽이 더 밝습니다. 어두운 쪽에서는 빈 종이 자체가 \"이것은 잉크\" 기준값 아래로 떨어져, 괘선 검출이 커다란 검은 덩어리를 먼저 받아 표가 무너집니다.\n\n페이지를 칸으로 나눠 \"이 자리의 종이가 얼마나 흰지\"를 추정하고 그에 맞춰 각 화소를 정규화합니다. 칸 전체가 도장으로 덮인 곳은 주변 종이로 메우므로 도장이 하얗게 날아가지 않습니다.\n\n스캐너로 만든 페이지는 원래 고르므로, 평탄하다고 측정되면 그대로 통과시켜 시간이 들지 않습니다.";
+
 HelpNoDeskew
     zh "不要自动摆正扫歪的页面"
     ht "不要自動轉正掃歪的頁面"
@@ -1139,6 +1166,15 @@ LibPage
     de "  Seite {0}: {1} Textzeilen, {2} Blöcke ({3} randlose Tabellen, {4} Tabellen mit Linien), {5} Kopf-/Fußzeilen"
     ja "  {0} ページ: 文字 {1} 行、ブロック {2} 個(罫線なしの表 {3}、罫線ありの表 {4})、ヘッダー・フッター {5} 行"
     ko "  {0}쪽: 글자 {1}줄, 블록 {2}개(선 없는 표 {3}, 선 있는 표 {4}), 머리글·바닥글 {5}줄";
+
+LibFlatten
+    zh "  第 {0} 页: 光照差 {1} 级, 已摊平"
+    ht "  第 {0} 頁：光照差 {1} 級，已攤平"
+    en "  page {0}: lighting varied by {1} levels, evened out"
+    es "  página {0}: la luz variaba {1} niveles, se ha igualado"
+    de "  Seite {0}: Beleuchtung schwankte um {1} Stufen, ausgeglichen"
+    ja "  {0} ページ: 明るさが {1} 段ばらついていたので、平らにしました"
+    ko "  {0}쪽: 밝기가 {1}단계 고르지 않아 평탄화했습니다";
 
 LibDeskew
     zh "  第 {0} 页: 扫歪了 {1}°, 已转正"

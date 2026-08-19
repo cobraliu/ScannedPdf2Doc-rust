@@ -21,6 +21,7 @@ pub mod ocr;
 pub mod ocrlang;
 pub mod pdf;
 pub mod render;
+pub mod shade;
 pub mod textlayer;
 pub mod xlsx;
 
@@ -151,7 +152,7 @@ impl Converter {
             pdf.parent().unwrap_or(Path::new(".")),
             &name,
             cfg.long_edge,
-            cfg.deskew,
+            (cfg.deskew, cfg.flatten),
         );
 
         // renderer 与 engine 是两个字段, 拆开借才不会撞 —— 渲染要 &self,
@@ -332,6 +333,14 @@ fn read_page(
             return Ok(textlayer::items(&chars, &rules));
         }
     }
+    // 摊平排在转正前面: 转正是数墨点数出来的, 用的也是固定阈值, 一边亮一边暗
+    // 时暗侧整片算墨, 量出来的角度就没意义了
+    if cfg.flatten {
+        let d = shade::flatten(img);
+        if d > 0 {
+            hooks.say(&tr!(K::LibFlatten, i + 1, d));
+        }
+    }
     // 转正要在识别之前, 而且转完的图得留给后面的框线检测 —— 两边看的必须是
     // 同一张图, 否则识别出来的字框跟框线差着一个角度
     if cfg.deskew {
@@ -394,15 +403,16 @@ struct Cache {
     dir: Option<PathBuf>,
     tag: String,
     long_edge: u32,
-    /// 摆正开着没有 —— 必须进 key
+    /// 图被动过没有 —— 必须进 key
     ///
     /// 存的是"在某一张图上认出的字, 以及它们在那张图上的坐标"。转正会换掉
     /// 那张图, 拿旧结果配新图, 字框跟框线就差着一个角度, 表格会整个错位。
-    deskew: bool,
+    /// 摊平同理: 它改的是能不能认出来, 认出来的东西也就不一样。
+    prep: (bool, bool),
 }
 
 impl Cache {
-    fn new(base: &Path, name: &str, long_edge: u32, deskew: bool) -> Self {
+    fn new(base: &Path, name: &str, long_edge: u32, prep: (bool, bool)) -> Self {
         let tag: String = name
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(c))
@@ -415,16 +425,28 @@ impl Cache {
             dir,
             tag,
             long_edge,
-            deskew,
+            prep,
         }
     }
 
+    /// 缓存文件名
+    ///
+    /// 版本号也进 key。开关记的是"用户勾了没", 不是"实际动了什么" —— 摊平的
+    /// 触发门槛、转正的搜索范围都是代码里的常数, 改了常数同一批开关就会算出
+    /// 另一张图。调门槛那次就踩过: 有一页不再摊平了, key 没变, 读回来的还是
+    /// 上一版在摊平图上认的字。版本一升就换一套文件, 这类事再不会发生
     fn path(&self, i: usize) -> Option<PathBuf> {
-        let k = if self.deskew { "d" } else { "r" };
+        let k = match self.prep {
+            (false, false) => "r",
+            (true, false) => "d",
+            (false, true) => "f",
+            (true, true) => "df",
+        };
         self.dir.as_ref().map(|d| {
             d.join(format!(
-                "{}_{}{}_{:04}.json",
+                "{}_{}_{}{}_{:04}.json",
                 self.tag,
+                env!("CARGO_PKG_VERSION").replace('.', ""),
                 self.long_edge,
                 k,
                 i + 1

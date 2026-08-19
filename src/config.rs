@@ -21,6 +21,8 @@ pub struct Config {
     /// 只对识别那条路有意义。走文字层的页不会转 —— 那些字的坐标来自 PDF
     /// 文件本身, 图一转就跟坐标对不上了, 何况原生 PDF 本来也不歪
     pub deskew: bool,
+    /// 光照不匀的页面先摊平(手机拍的纸一边亮一边暗)
+    pub flatten: bool,
 
     // ---- 噪声过滤 ----
     /// 剔除印章/签名一类的短串低置信噪声
@@ -91,6 +93,7 @@ impl Default for Config {
             long_edge: 2560,
             text_layer: true,
             deskew: true,
+            flatten: true,
 
             drop_stamp: true,
             stamp_conf: 0.88,
