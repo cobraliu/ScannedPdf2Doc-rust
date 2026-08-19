@@ -38,6 +38,9 @@ struct Args {
     no_text_layer: bool,
 
     #[arg(long)]
+    no_deskew: bool,
+
+    #[arg(long)]
     models: Option<PathBuf>,
 
     #[arg(short, long)]
@@ -98,6 +101,7 @@ fn parse_localized() -> Args {
         .mut_arg("no_grid", |a| a.help(i18n::t(K::HelpNoGrid)))
         .mut_arg("no_marker", |a| a.help(i18n::t(K::HelpNoMarker)))
         .mut_arg("no_text_layer", |a| a.help(i18n::t(K::HelpNoTextLayer)))
+        .mut_arg("no_deskew", |a| a.help(i18n::t(K::HelpNoDeskew)))
         .mut_arg("models", |a| a.help(i18n::t(K::HelpModels)))
         .mut_arg("quiet", |a| a.help(i18n::t(K::HelpQuiet)))
         .mut_arg("lang", |a| a.help(help_lang))
@@ -152,6 +156,7 @@ fn main() {
         grid_tables: !a.no_grid,
         page_marker: !a.no_marker,
         text_layer: !a.no_text_layer,
+        deskew: !a.no_deskew,
         ..Default::default()
     };
 

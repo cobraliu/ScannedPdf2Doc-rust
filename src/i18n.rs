@@ -512,6 +512,33 @@ LongEdgeTip
     ja "実際の dpi はページ寸法から逆算し 150〜300 に収めます。小さくすると速い代わりに小さな文字が落ちます"
     ko "실제 dpi는 페이지 크기에서 역산해 150~300 사이로 맞춥니다. 낮추면 빠르지만 작은 글자를 놓칩니다";
 
+HelpNoDeskew
+    zh "不要自动摆正扫歪的页面"
+    ht "不要自動轉正掃歪的頁面"
+    en "Do not straighten pages that were scanned at an angle"
+    es "No enderezar las páginas escaneadas torcidas"
+    de "Schief eingescannte Seiten nicht gerade rücken"
+    ja "傾いて取り込まれたページをまっすぐにしない"
+    ko "기울어져 스캔된 쪽을 바로잡지 않습니다";
+
+Deskew
+    zh "把扫歪的页面转正"
+    ht "把掃歪的頁面轉正"
+    en "Straighten tilted scans"
+    es "Enderezar escaneos torcidos"
+    de "Schiefe Scans gerade rücken"
+    ja "傾いたスキャンをまっすぐに"
+    ko "기울어진 스캔 바로잡기";
+
+DeskewTip
+    zh "扫描件和拍照件多半歪着一点。一度看着不多, 但整页宽度上一条横线两端就差了三十来个像素 —— 框线会被判断成断开的好几截, 表格还原不出来。\n\n量出角度再转回去, 每页多花几十毫秒。原生 PDF 不用转, 这个开关对它没影响。"
+    ht "掃描件和拍照件多半歪著一點。一度看著不多，但整頁寬度上一條橫線兩端就差了三十來個像素 —— 框線會被判斷成斷開的好幾截，表格還原不出來。\n\n量出角度再轉回去，每頁多花幾十毫秒。原生 PDF 不用轉，這個開關對它沒影響。"
+    en "Scans and photos are usually a little tilted. One degree sounds harmless, but across a full page it puts the two ends of a horizontal rule some thirty pixels apart — the rule gets read as several broken pieces and the table falls apart.\n\nMeasuring the angle and turning it back costs a few tens of milliseconds per page. Native PDFs need no straightening, so this switch does nothing for them."
+    es "Los escaneos y las fotos suelen quedar algo torcidos. Un grado parece poco, pero a lo ancho de una página deja los dos extremos de una línea horizontal separados unos treinta píxeles: la línea se lee como varios trozos sueltos y la tabla se deshace.\n\nMedir el ángulo y devolverlo cuesta unas decenas de milisegundos por página. Los PDF nativos no necesitan enderezarse, así que esta opción no les afecta."
+    de "Scans und Fotos sind meist etwas schief. Ein Grad klingt harmlos, doch über eine ganze Seite liegen die beiden Enden einer waagerechten Linie rund dreißig Pixel auseinander — die Linie wird als mehrere abgerissene Stücke gelesen und die Tabelle zerfällt.\n\nWinkel messen und zurückdrehen kostet einige zehn Millisekunden pro Seite. Native PDFs brauchen das nicht, für sie ändert dieser Schalter nichts."
+    ja "スキャンや写真はたいてい少し傾いています。一度と聞くとわずかですが、ページの幅いっぱいでは横線の両端が三十ピクセルほどずれ、線が何本もの切れ端として読まれて表が崩れます。\n\n角度を測って戻すのに 1 ページあたり数十ミリ秒かかります。ネイティブ PDF には不要なので、この切り替えは効きません。"
+    ko "스캔본과 사진은 대개 조금 기울어 있습니다. 1도는 대수롭지 않아 보이지만 페이지 폭 전체로는 가로선의 양 끝이 서른 픽셀쯤 어긋나, 선이 끊긴 여러 조각으로 읽히고 표가 무너집니다.\n\n각도를 재서 되돌리는 데 쪽당 수십 밀리초가 듭니다. 네이티브 PDF에는 필요 없어 이 설정은 영향을 주지 않습니다.";
+
 TextLayer
     zh "有文字层就直接用"
     ht "有文字層就直接用"
@@ -1112,6 +1139,15 @@ LibPage
     de "  Seite {0}: {1} Textzeilen, {2} Blöcke ({3} randlose Tabellen, {4} Tabellen mit Linien), {5} Kopf-/Fußzeilen"
     ja "  {0} ページ: 文字 {1} 行、ブロック {2} 個(罫線なしの表 {3}、罫線ありの表 {4})、ヘッダー・フッター {5} 行"
     ko "  {0}쪽: 글자 {1}줄, 블록 {2}개(선 없는 표 {3}, 선 있는 표 {4}), 머리글·바닥글 {5}줄";
+
+LibDeskew
+    zh "  第 {0} 页: 扫歪了 {1}°, 已转正"
+    ht "  第 {0} 頁：掃歪了 {1}°，已轉正"
+    en "  page {0}: scanned {1}° off, straightened"
+    es "  página {0}: escaneada {1}° torcida, enderezada"
+    de "  Seite {0}: {1}° schief eingescannt, gerade gerückt"
+    ja "  {0} ページ: {1}° 傾いて取り込まれていたので、まっすぐにしました"
+    ko "  {0}쪽: {1}° 기울어져 스캔되어 바로잡았습니다";
 
 LibTextLayer
     zh "  第 {0} 页: PDF 自带文字层, 直接取字, 不识别"

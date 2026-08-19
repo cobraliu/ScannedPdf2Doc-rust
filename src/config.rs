@@ -16,6 +16,12 @@ pub struct Config {
     /// 文字层 —— 那层分不出好坏, 宁可自己重认一遍
     pub text_layer: bool,
 
+    /// 识别之前先把扫歪的页面转正
+    ///
+    /// 只对识别那条路有意义。走文字层的页不会转 —— 那些字的坐标来自 PDF
+    /// 文件本身, 图一转就跟坐标对不上了, 何况原生 PDF 本来也不歪
+    pub deskew: bool,
+
     // ---- 噪声过滤 ----
     /// 剔除印章/签名一类的短串低置信噪声
     pub drop_stamp: bool,
@@ -84,6 +90,7 @@ impl Default for Config {
         Self {
             long_edge: 2560,
             text_layer: true,
+            deskew: true,
 
             drop_stamp: true,
             stamp_conf: 0.88,

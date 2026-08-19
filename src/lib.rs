@@ -11,6 +11,7 @@
 //! 各页的文字框, 峰值仍然由识别那一段决定。
 
 pub mod config;
+pub mod deskew;
 pub mod docx;
 pub mod geom;
 pub mod i18n;
@@ -146,7 +147,12 @@ impl Converter {
             .or_else(|| pdf.parent().map(|p| p.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
         std::fs::create_dir_all(&dir)?;
-        let cache = Cache::new(pdf.parent().unwrap_or(Path::new(".")), &name, cfg.long_edge);
+        let cache = Cache::new(
+            pdf.parent().unwrap_or(Path::new(".")),
+            &name,
+            cfg.long_edge,
+            cfg.deskew,
+        );
 
         // renderer 与 engine 是两个字段, 拆开借才不会撞 —— 渲染要 &self,
         // OCR 会话要 &mut self
@@ -274,10 +280,10 @@ fn one_page(
     cfg: &Config,
     hooks: &Hooks,
 ) -> Result<layout::Page> {
-    let img = pages
+    let mut img = pages
         .render(i)
         .with_context(|| tr!(K::LibRenderPage, i + 1))?;
-    let items = read_page(pages, engine, cache, &img, i, cfg, hooks)?;
+    let items = read_page(pages, engine, cache, &mut img, i, cfg, hooks)?;
     let page = layout::analyze(&items, &img, cfg);
     let tbls = page
         .blocks
@@ -309,7 +315,7 @@ fn read_page(
     pages: &pdf::Pages,
     engine: &mut ocr::Engine,
     cache: &Cache,
-    img: &imgutil::Gray,
+    img: &mut imgutil::Gray,
     i: usize,
     cfg: &Config,
     hooks: &Hooks,
@@ -324,6 +330,14 @@ fn read_page(
             // 了就当没有线接着走
             let rules = pages.vrules(i).unwrap_or_default();
             return Ok(textlayer::items(&chars, &rules));
+        }
+    }
+    // 转正要在识别之前, 而且转完的图得留给后面的框线检测 —— 两边看的必须是
+    // 同一张图, 否则识别出来的字框跟框线差着一个角度
+    if cfg.deskew {
+        let a = deskew::straighten(img);
+        if a != 0.0 {
+            hooks.say(&tr!(K::LibDeskew, i + 1, format!("{a:+.1}")));
         }
     }
     // 缓存只存识别结果: 识别占九成时间, 渲染反而很快。文字层这条路本来就快,
@@ -380,10 +394,15 @@ struct Cache {
     dir: Option<PathBuf>,
     tag: String,
     long_edge: u32,
+    /// 摆正开着没有 —— 必须进 key
+    ///
+    /// 存的是"在某一张图上认出的字, 以及它们在那张图上的坐标"。转正会换掉
+    /// 那张图, 拿旧结果配新图, 字框跟框线就差着一个角度, 表格会整个错位。
+    deskew: bool,
 }
 
 impl Cache {
-    fn new(base: &Path, name: &str, long_edge: u32) -> Self {
+    fn new(base: &Path, name: &str, long_edge: u32, deskew: bool) -> Self {
         let tag: String = name
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || ('\u{4e00}'..='\u{9fff}').contains(c))
@@ -396,13 +415,21 @@ impl Cache {
             dir,
             tag,
             long_edge,
+            deskew,
         }
     }
 
     fn path(&self, i: usize) -> Option<PathBuf> {
-        self.dir
-            .as_ref()
-            .map(|d| d.join(format!("{}_{}_{:04}.json", self.tag, self.long_edge, i + 1)))
+        let k = if self.deskew { "d" } else { "r" };
+        self.dir.as_ref().map(|d| {
+            d.join(format!(
+                "{}_{}{}_{:04}.json",
+                self.tag,
+                self.long_edge,
+                k,
+                i + 1
+            ))
+        })
     }
 
     fn load(&self, i: usize) -> Option<Vec<Item>> {
